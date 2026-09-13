@@ -1,0 +1,29 @@
+﻿@page "/admin"
+@rendermode InteractiveAuto
+@attribute [Authorize(Roles = "Admin")]
+@layout MainLayout
+
+@using Microsoft.AspNetCore.Authorization
+@using Web.Client.Components
+
+<CustomPageTitle Value="Admin Dashboard" />
+
+<div class="p-4 animate-fade-in">
+    <div class="d-flex align-items-center gap-3 mb-4">
+        <div class="bg-primary-subtle text-primary rounded p-2.5 d-inline-flex align-items-center justify-content-center shadow-sm">
+            <span class="bi bi-shield-lock-fill fs-3"></span>
+        </div>
+        <div>
+            <h1 class="h3 fw-bold mb-0">System Control Panel</h1>
+            <small class="text-secondary">Root Infrastructure & Management Hub</small>
+        </div>
+    </div>
+    
+    <div class="card border-0 shadow-sm p-4 bg-light">
+        <h4 class="fw-bold text-dark mb-2">Administrative Workspace</h4>
+        <p class="text-secondary mb-0">
+            If you are reading this text, your role-based routing controls have integrated 
+            successfully. Welcome to the root administrative container!
+        </p>
+    </div>
+</div>

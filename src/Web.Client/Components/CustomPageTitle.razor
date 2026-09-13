@@ -1,0 +1,29 @@
+﻿@using Microsoft.AspNetCore.Components
+@using Api.Contracts.Extensions
+
+@inject Microsoft.Extensions.Configuration.IConfiguration Configuration
+
+<PageTitle>@TitlePrefix@_appName</PageTitle>
+
+@code {
+    [Parameter] 
+    [EditorRequired] 
+    public string Value { get; set; } = string.Empty;
+    
+    private string _appName = "SupportAgent"; // Fallback default text if configuration layout is empty
+
+    private string TitlePrefix => string.IsNullOrWhiteSpace(Value) ? "" : $"{Value} - ";
+
+    protected override void OnInitialized()
+    {
+        // Safely extract the app name string out of configuration natively.
+        // Because WebAssembly inherits configuration arrays during initialization passes,
+        // it parses the string cleanly without violating 'OnPersisting' thread constraints.
+        var configuredName = Configuration["AppName"];
+        
+        if (!string.IsNullOrWhiteSpace(configuredName))
+        {
+            _appName = configuredName.AddSpacesToPascalCase;
+        }
+    }
+}

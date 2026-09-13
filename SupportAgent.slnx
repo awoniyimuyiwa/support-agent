@@ -1,0 +1,21 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Api.Contracts/Api.Contracts.csproj" Id="19b088b6-7e21-4fe9-9a98-de18e18a88dc" />
+    <Project Path="src/Api/Api.csproj" />
+    <Project Path="src/AppHost/AppHost.csproj" />
+    <Project Path="src/Application.Contracts/Application.Contracts.csproj" />
+    <Project Path="src/Application/Application.csproj" />
+    <Project Path="src/DbMigrator/DbMigrator.csproj" Id="f202937f-2a5c-4f2a-b365-eb330c2d103b" />
+    <Project Path="src/Domain.Shared/Domain.Shared.csproj" Id="f1e7a060-090e-4940-b1f8-1ca4ca523dd8" />
+    <Project Path="src/Domain/Domain.csproj" />
+    <Project Path="src/Infrastructure.EntityFrameworkCore/Infrastructure.EntityFrameworkCore.csproj" />
+    <Project Path="src/ServiceDefaults/ServiceDefaults.csproj" />
+    <Project Path="src/Web.Client/Web.Client.csproj" />
+    <Project Path="src/Web/Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Api.UnitTests/Api.UnitTests.csproj" Id="528419b7-f6d4-489b-8081-ed65a8c4eb08" />
+    <Project Path="tests/AppHost.IntegrationTests/AppHost.IntegrationTests.csproj" />
+    <Project Path="tests/Application.UnitTests/Application.UnitTests.csproj" Id="3168efdd-d21d-4c2e-be3c-0d3863360f19" />
+  </Folder>
+</Solution>

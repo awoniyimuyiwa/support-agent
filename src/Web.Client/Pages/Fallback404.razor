@@ -1,0 +1,54 @@
+﻿@* 
+  The string format below maps this page as a global parameter catch-all.
+  This forces the server routing tables to map EVERY deep missing URL path 
+  down into the authenticated Blazor app engine shell
+*@
+@page "/{**pagePath}"
+
+@using Microsoft.AspNetCore.Components.Authorization
+@using Web.Client.Components
+@inject NavigationManager Navigation
+
+<CustomPageTitle Value="404 Not Found"/>
+
+<div class="d-flex flex-column align-items-center justify-content-center text-center p-5" style="min-height: 70vh;">                
+    <div class="bg-warning-subtle text-warning rounded-circle p-4 mb-4 d-inline-flex align-items-center justify-content-center shadow-sm" style="width: 80px; height: 80px;">
+        <span class="bi bi-exclamation-triangle-fill fs-1"></span>
+    </div>
+    
+    <h3 class="fw-bold text-dark mb-2">Oops! Destination Not Found</h3>
+    <p class="text-secondary mb-4" role="alert" style="max-width: 500px;">
+        The page may have been moved, deleted, or you might have a minor typo in the URL.
+    </p>
+
+    <AuthorizeView>
+        <Authorized>
+            @* 
+              Standard dashboard links are fine staying inside Blazor's client router,
+              but if you ever notice state desyncs here, you can swap this to use RedirectToRoute as well.
+            *@
+            <a href="dashboard" class="btn btn-primary d-inline-flex align-items-center gap-2 shadow-sm fw-semibold">
+                <span class="bi bi-house-door-fill"></span>
+                <span>Return to Safety</span>
+            </a>
+        </Authorized>
+        <NotAuthorized>
+            <button @onclick="RedirectToLogin" class="btn btn-outline-primary d-inline-flex align-items-center gap-2 shadow-sm fw-semibold">
+                <span>Go to Login</span>
+            </button>
+        </NotAuthorized>
+    </AuthorizeView>
+</div>
+
+@code {
+    // Captures the broken URL path string for logging or tracking analytics metrics
+    [Parameter]
+    public string? PagePath { get; set; }
+
+    private void RedirectToLogin()
+    {
+        // FORCED RELOAD: Breaks out of the client WASM runtime sandboxed loop, 
+        // forcing the browser to hit the server pipeline's authentication endpoints natively.
+        Navigation.NavigateTo("login", forceLoad: true);
+    }
+}

@@ -1,0 +1,67 @@
+﻿@using Microsoft.AspNetCore.Components.Authorization
+@using Web.Client.Components
+@inject NavigationManager Navigation
+
+<AuthorizeView>
+    <Authorized>
+        <div class="dropdown position-relative d-inline-block" @onmouseleave="CloseDropdown">
+            
+            <button class="btn btn-link text-decoration-none dropdown-toggle d-flex align-items-center gap-2 border-0 py-1.5 px-3"
+                    type="button"
+                    @onclick="ToggleDropdown"
+                    style="color: #ffffff; background: transparent; transition: opacity 0.15s ease;">
+                <div class="bg-primary text-white rounded-circle d-flex align-items-center justify-content-center shadow-sm fw-bold" style="width: 28px; height: 28px; font-size: 0.85rem;">
+                    @(context.User.Identity?.Name?[..1].ToUpper() ?? "U")
+                </div>
+                <span class="d-none d-md-inline fw-medium text-white-50 opacity-100" style="color: rgba(255, 255, 255, 0.75) !important;">
+                    @context.User.Identity?.Name
+                </span>
+            </button>
+
+            <ul class="dropdown-menu dropdown-menu-end shadow border-0 mt-2 animate-fade-in @(_isOpen ? "show" : string.Empty)"
+                style="position: absolute; right: 0; left: auto; display: @(_isOpen ? "block" : "none"); min-width: 200px; z-index: 1050;">
+                <li class="px-3 py-2 border-bottom mb-1 bg-light rounded-top">
+                    <div class="small fw-bold text-dark">Signed in as</div>
+                    <div class="small text-secondary text-truncate" style="max-width: 180px;">@context.User.Identity?.Name</div>
+                </li>
+                <li>
+                    <a class="dropdown-item d-flex align-items-center gap-2 py-2" href="dashboard" @onclick="CloseDropdown">
+                        <span class="bi bi-speedometer2 text-secondary"></span>
+                        <span>Dashboard</span>
+                    </a>
+                </li>
+                <li><hr class="dropdown-divider"></li>
+                <li class="px-2">
+                    <LogoutButton />
+                </li>
+            </ul>
+        </div>
+    </Authorized>
+    <NotAuthorized>
+        <button @onclick="RedirectToLogin" class="btn btn-primary btn-sm fw-bold px-3 d-flex align-items-center gap-2 shadow-sm">
+            <span class="bi bi-box-arrow-in-right"></span>
+            <span>Sign In</span>
+        </button>
+    </NotAuthorized>
+</AuthorizeView>
+
+@code {
+    private bool _isOpen = false;
+
+    private void ToggleDropdown()
+    {
+        _isOpen = !_isOpen;
+    }
+
+    private void CloseDropdown()
+    {
+        _isOpen = false;
+    }
+
+    private void RedirectToLogin()
+    {
+        // FORCED RELOAD: Safely tears down the running WebAssembly sandbox
+        // context and forces the browser to hit the server project architecture natively.
+        Navigation.NavigateTo("login", forceLoad: true);
+    }
+}

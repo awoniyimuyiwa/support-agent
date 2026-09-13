@@ -1,0 +1,229 @@
+﻿@page "/login"
+@rendermode InteractiveAuto
+@attribute [AllowAnonymous]
+@layout AuthLayout
+
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Web.Client.Components
+@using Web.Client.Models
+
+@inject ApiClient ApiClient
+@inject NavigationManager Nav
+@inject AuthenticationStateProvider AuthStateProvider
+@inject ILogger<Login> Logger
+
+<CustomPageTitle Value="Login" />
+
+@* If in the browser sandbox and the user is authenticated, 
+   keep the entire form hidden to prevent the "Initializing Security..." visual flicker 
+   while the client routes them forward to the dashboard! *@
+@if (!_isRedirecting)
+{
+    <h3 class="card-title fw-bold text-center mb-4">Login</h3>
+
+    @if (!string.IsNullOrWhiteSpace(_errorMessage))
+    {
+        <div class="alert alert-danger py-2.5 small shadow-sm d-flex align-items-center gap-2 animate-fade-in" role="alert">
+            <span class="bi bi-exclamation-octagon-fill fs-5"></span>
+            <div>@_errorMessage</div>
+        </div>
+    }
+
+    <EditForm Model="_loginModel" OnValidSubmit="HandleLogin">
+        <DataAnnotationsValidator />
+
+        <div class="form-group mb-3">
+            <label for="loginIdentifier" class="form-label fw-semibold small text-secondary">Email or Username</label>
+            <InputText @ref="_emailInput"
+                       id="loginIdentifier"
+                       class="form-control form-control-lg fs-6"
+                       @bind-Value="_loginModel.Email"
+                       disabled="@(_isProcessing || !_isAntiforgeryLoaded)"
+                       placeholder="Enter email or username..." />
+            <ValidationMessage For="() => _loginModel.Email" class="text-danger small mt-1" />
+        </div>
+
+        <div class="form-group mb-4">
+            <label for="password" class="form-label fw-semibold small text-secondary">Password</label>
+            <InputText id="password"
+                       type="password"
+                       class="form-control form-control-lg fs-6"
+                       @bind-Value="_loginModel.Password"
+                       disabled="@(_isProcessing || !_isAntiforgeryLoaded)"
+                       placeholder="Enter password..." />
+            <ValidationMessage For="() => _loginModel.Password" class="text-danger small mt-1" />
+        </div>
+
+        <div class="d-grid gap-2">
+            <button type="submit"
+                    class="btn btn-primary btn-lg fs-6 fw-bold shadow-sm d-flex align-items-center justify-content-center gap-2"
+                    disabled="@(_isProcessing || !_isAntiforgeryLoaded)">
+                @if (!_isAntiforgeryLoaded)
+                {
+                    <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                    <span>Initializing Security...</span>
+                }
+                else if (_isProcessing)
+                {
+                    <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                    <span>Authenticating...</span>
+                }
+                else
+                {
+                    <span class="bi bi-box-arrow-in-right"></span>
+                    <span>Login</span>
+                }
+            </button>
+        </div>
+    </EditForm>
+}
+else
+{
+    @* Show a clean, empty frame or an authoritative spinner placeholder while the redirect fires *@
+    <div class="text-center p-5 animate-fade-in">
+        <div class="spinner-border text-primary" role="status"></div>
+        <p class="mt-2 text-secondary">Loading secure application workspace...</p>
+    </div>
+}
+
+@code {
+    private LoginModel _loginModel = new();
+
+    private bool _isProcessing = false;
+
+    private bool _isAntiforgeryLoaded = false;
+
+    /// <summary>
+    /// Acts as a pre-render form shield and asynchronous navigation buffer.
+    /// When true, it completely hides login form inputs to prevent UI flickering while the Blazor router transitions to pages that require authentication like <code>/dashboard</code>.
+    /// </summary>
+    private bool _isRedirecting = false;
+
+    private string? _errorMessage = null;
+
+    private InputText? _emailInput;
+
+    [SupplyParameterFromQuery]
+    public string? ReturnUrl { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+
+        if (user.Identity?.IsAuthenticated == true)
+        {
+            _isRedirecting = true; // Activate shield instantly on the server pass!
+
+            if (OperatingSystem.IsBrowser())
+            {
+                await Task.Yield();
+                Nav.NavigateTo("/dashboard", forceLoad: false);
+            }
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && OperatingSystem.IsBrowser())
+        {
+            // If the server pass already flagged user as authenticated and redirecting,
+            // short-circuit immediately and let the navigation operation complete.
+            if (_isRedirecting)
+            {
+                return;
+            }
+
+            try
+            {
+                Logger.LogInformation("WASM client stabilized. Safely pulling client-side antiforgery token...");
+
+                // This call runs in the browser where cookies can be written
+                await ApiClient.GetAntiforgeryToken();
+
+                _isAntiforgeryLoaded = true;
+
+                if (_emailInput?.Element is not null)
+                {
+                    await _emailInput.Element.Value.FocusAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Initial login antiforgery pre-fetch failed: {ErrorMessage}", ex.Message);
+                _errorMessage = "Security initialization could not verify a safe connection, but form inputs have been unlocked as fallback.";
+                _isAntiforgeryLoaded = true; // Unlock as safe UI fallback fallback
+            }
+            finally
+            {
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task HandleLogin()
+    {
+        _isProcessing = true;
+        _errorMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var response = await ApiClient.Login(_loginModel);
+
+            if (response.IsSuccessStatusCode)
+            {
+                _isRedirecting = true; // Turn on shield instantly to drop form layouts
+                StateHasChanged();
+
+                await ApiClient.GetAntiforgeryToken();
+                
+                var destination = "/dashboard";
+                if (!string.IsNullOrWhiteSpace(ReturnUrl) && IsLocalUrl(ReturnUrl))
+                {
+                    destination = ReturnUrl;
+                }
+
+                Logger.LogInformation("Authentication verified. Executing hard JS document routing pass to bypass loop caches...");
+                Nav.NavigateTo(destination, forceLoad: true);
+            }
+            else
+            {
+                _errorMessage = (int)response.StatusCode switch
+                {
+                    400 => "Invalid form validation parameters. Please verify input data formatting and try again.",
+                    401 => "Authentication failed. The security credentials provided are incorrect.",
+                    429 => "Too many connection attempts. Access throttled by rate limit policies.",
+                    500 => "Internal server error. Please contact an administrator.",
+                    _ => $"Sign in attempt rejected. Server responded with status code: {(int)response.StatusCode}"
+                };
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Network connection failure: Cannot communicate with the API gateway proxy. ({ex.Message})";
+        }
+        finally
+        {
+            if (!_isRedirecting)
+            {
+                _isProcessing = false;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private bool IsLocalUrl(string url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return false;
+        if (url.StartsWith("/") && !url.StartsWith("//") && !url.StartsWith("/\\")) return true;
+
+        if (Uri.TryCreate(url, UriKind.Absolute, out var absoluteUri))
+        {
+            return string.Equals(absoluteUri.Host, new Uri(Nav.BaseUri).Host, StringComparison.OrdinalIgnoreCase);
+        }
+
+        return false;
+    }
+}

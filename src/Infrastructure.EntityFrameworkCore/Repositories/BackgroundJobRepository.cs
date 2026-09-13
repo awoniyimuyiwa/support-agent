@@ -1,0 +1,145 @@
+using Domain;
+using Domain.BackgroundJobs;
+using Domain.Shared;
+using Domain.Shared.BackgroundJobs;
+using Infrastructure.EntityFrameworkCore.Extensions;
+using Microsoft.EntityFrameworkCore;
+using System.Linq.Expressions;
+
+namespace Infrastructure.EntityFrameworkCore.Repositories;
+
+class BackgroundJobRepository(
+    ApplicationDbContext context,
+    TimeProvider timeProvider) : BaseRepository<BackgroundJob>(context), IBackgroundJobRepository
+{
+    readonly TimeProvider _timeProvider = timeProvider;
+
+    public async Task<BackgroundJobDto?> Get(
+        Expression<Func<BackgroundJob, bool>> expression,
+        CancellationToken cancellationToken = default)
+    {
+        return await _context.Set<BackgroundJob>()
+            .Where(expression)
+            .ToInternalDto()
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyCollection<long>> GetIds(
+        Expression<Func<BackgroundJob, bool>> expression,
+        int batchSize,
+        CancellationToken cancellationToken = default)
+    {
+        return await _context.Set<BackgroundJob>()
+            .Where(expression)
+            // Highest priority first
+            .OrderByDescending(bj => bj.Priority)
+            // Oldest scheduled date second (FIFO within same priority)
+            .ThenBy(bj => bj.ScheduledFor)
+            .Select(bj => bj.Id)
+            .Take(batchSize)
+            .ToListAsync(cancellationToken);
+    }
+
+    public Task<PaginatedList<BackgroundJobDto>> Paginate(
+        GetBackgroundJobFilterDto? filter,
+        int pageNumber = Constants.MinPageNumber,
+        int pageSize = Constants.MaxPageSize,
+        CancellationToken cancellationToken = default) =>
+       
+        _context.Set<BackgroundJob>()
+        .ToPaginatedList<
+            BackgroundJob, 
+            InternalBackgroundJobDto, 
+            BackgroundJobDto>(
+            pageNumber,
+            pageSize,
+            q => q.ToInternalDto(),
+            bj => bj.CreatedAt,
+            filter: q => filter != null ? ApplyFilter(filter) : q,
+            cancellationToken);
+
+    public Task<CursorList<BackgroundJobDto>> Stream(
+        GetBackgroundJobFilterDto? filter,
+        Cursor? cursor,
+        int pageSize = Constants.MaxPageSize,
+        CancellationToken cancellationToken = default) =>
+
+        _context.Set<BackgroundJob>()
+        .ToCursorList<
+            BackgroundJob,
+            InternalBackgroundJobDto, 
+            BackgroundJobDto>(
+            cursor,
+            pageSize,
+            q => q.ToInternalDto(),
+            filter: q => filter != null ? ApplyFilter(filter) : q,
+            cancellationToken);
+
+    public Task<int> RequeueFailed(
+        RequeueBackgroundJobFilterDto? filter,
+        CancellationToken cancellationToken = default)
+    {
+        var now = _timeProvider.GetUtcNow();
+
+        var query = filter is not null
+         ? ApplyFilter(filter) : _context.Set<BackgroundJob>();
+
+        return _context.Set<BackgroundJob>()
+             .Where(bj => bj.Status == BackgroundJobStatus.Failed)
+             .ExecuteUpdateAsync(s => s
+             .SetProperty(bj => bj.Status, BackgroundJobStatus.Queued)
+             .SetProperty(bj => bj.Attempts, (uint)0)
+             .SetProperty(bj => bj.ScheduledFor, now)
+             .SetProperty(bj => bj.Error, (string?)null)
+             // Invalidate concurrency stamps for all affected rows to prevent conflicts with zombie processes.
+             .SetProperty(bj => bj.ConcurrencyStamp, _ => Guid.NewGuid().ToString()),
+             cancellationToken);
+    }
+
+    public Task<int> RequeueStuck(
+        RequeueBackgroundJobFilterDto? filter,
+        CancellationToken cancellationToken = default)
+    {
+        var now = _timeProvider.GetUtcNow();
+
+        var query = filter is not null
+            ? ApplyFilter(filter) : _context.Set<BackgroundJob>();
+
+        return query
+            .Where(bj => bj.Status == BackgroundJobStatus.InProgress)
+            .ExecuteUpdateAsync(s => s
+            .SetProperty(bj => bj.Status, BackgroundJobStatus.Queued)
+            .SetProperty(bj => bj.Error, "Reset by automated cleanup.")
+            .SetProperty(bj => bj.UpdatedAt, now)
+            // Invalidate concurrency stamps for all affected rows to prevent conflicts with zombie processes.
+            .SetProperty(bj => bj.ConcurrencyStamp, _ => Guid.NewGuid().ToString()),
+            cancellationToken);
+    }
+
+    private IQueryable<BackgroundJob> ApplyFilter(RequeueBackgroundJobFilterDto filter)
+    {
+        return ApplyFilter((BackgroundJobFilterDto)filter)
+            .WhereIf(filter.Ids != null && filter.Ids.Length > 0, bj => filter.Ids!.Contains(bj.ExternalId))
+            .WhereIf(filter.SourceIds != null && filter.SourceIds.Length > 0, bj => bj.SourceId != null && filter.SourceIds!.Contains(bj.SourceId.Value))
+            .WhereIf(filter.TraceIds != null && filter.TraceIds.Length > 0, bj => bj.TraceId != null && filter.TraceIds!.Contains(bj.TraceId));
+    }
+
+    private IQueryable<BackgroundJob> ApplyFilter(GetBackgroundJobFilterDto filter)
+    {
+        return ApplyFilter((BackgroundJobFilterDto)filter)
+            .WhereIf(filter.Statuses != null && filter.Statuses.Length > 0, bj => filter.Statuses!.Contains(bj.Status));
+    }
+
+    private IQueryable<BackgroundJob> ApplyFilter(BackgroundJobFilterDto filter)
+    {
+        return _context.Set<BackgroundJob>()
+            .WhereIf(filter.CreatedFrom != null, bj => bj.CreatedAt >= filter!.CreatedFrom)
+            .WhereIf(filter.CreatedTo != null, bj => bj.CreatedAt <= filter!.CreatedTo)
+            .WhereIf(filter.Priorities != null && filter.Priorities.Length > 0, bj => filter.Priorities!.Contains(bj.Priority))
+            .WhereIf(filter.ScheduledFrom != null, bj => bj.ScheduledFor >= filter!.ScheduledFrom)
+            .WhereIf(filter.ScheduledTo != null, bj => bj.ScheduledFor <= filter!.ScheduledTo)
+            .WhereIf(filter.Types != null && filter.Types.Length > 0, bj => filter.Types!.Contains(bj.Type))
+            .WhereIf(filter.UpdatedFrom != null, bj => bj.UpdatedAt >= filter!.UpdatedFrom)
+            .WhereIf(filter.UpdatedTo != null, bj => bj.UpdatedAt <= filter!.UpdatedTo);
+    }
+}

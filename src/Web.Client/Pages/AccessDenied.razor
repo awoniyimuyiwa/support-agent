@@ -1,0 +1,28 @@
+﻿@page "/403"
+@attribute [AllowAnonymous]
+@layout MainLayout
+
+@using Microsoft.AspNetCore.Authorization
+@using Web.Client.Components
+
+<CustomPageTitle Value="Access Denied" />
+
+<div class="d-flex flex-column align-items-center justify-content-center text-center p-5 my-5 animate-fade-in">
+    <div class="bg-danger-subtle text-danger rounded-circle p-4 mb-4 d-inline-flex align-items-center justify-content-center shadow-sm" style="width: 80px; height: 80px;">
+        <span class="bi bi-shield-slash-fill fs-1"></span>
+    </div>
+    
+    <h2 class="fw-bold text-dark mb-2">Access Denied (403)</h2>
+    
+    <p class="text-secondary mb-4 mx-auto" style="max-width: 480px;">
+        Your account does not possess the administrative security privileges required to view this workspace. 
+        If you believe this is an error, please contact your system administrator.
+    </p>
+    
+    <div class="d-flex gap-3 justify-content-center">
+        <a href="/dashboard" class="btn btn-primary d-flex align-items-center gap-2 shadow-sm fw-semibold">
+            <span class="bi bi-house-door"></span>
+            <span>Return to Dashboard</span>
+        </a>
+    </div>
+</div>

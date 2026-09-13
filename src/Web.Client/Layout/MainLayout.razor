@@ -1,0 +1,59 @@
+﻿@using Web.Client.Components
+
+@inherits LayoutComponentBase
+
+@*
+1. This file inside 'Web.Client' serves as the single authoritative master layout wrapper for the app.
+   The matching 'MainLayout.razor' (and any companion .css files) inside the server project directory path
+   (Web/Components/Layout/) must be removed to prevent layout ambiguities and CSS collisions.
+
+2. Do not wrap this layout structure in a <CascadingAuthenticationState> markup tag. The identity context 
+   task is managed globally via service-level registrations (AddCascadingAuthenticationState) across both 
+   Server and WebAssembly boundaries to eliminate nested duplicate cascade loop conflicts.
+
+3. Interactive Auto is inherited globally by this layout because it is declared directly onto the root 
+   <Routes @rendermode="InteractiveAuto" /> component inside App.razor. This guarantees that background lifecycles 
+   for state management and offline storage syncing (<SyncCoordinator />) hydrate and execute seamlessly out-of-the-box.
+*@
+
+<div class="page">
+    <div class="sidebar">
+        <NavMenu />
+    </div>
+
+    <main>
+        <!-- 
+           Using d-flex and justify-content-between keeps Breadcrumbs on the left 
+           and UserProfileMenu on the right while maintaining perfect compliance 
+           with default Blazor template layout mechanics.
+        -->
+        <div class="top-row px-4 d-flex justify-content-between align-items-center bg-dark text-white border-bottom border-secondary-subtle">
+            <!-- Left side Breadcrumbs Layout -->
+            <div class="d-flex align-items-center py-1">
+                <Breadcrumbs />
+            </div>
+
+            <!-- Right Side Profile Gateway Component Container -->
+            <div>
+                <UserProfileMenu />
+            </div>
+        </div>
+        @* <div class="top-row px-4">
+            <a href="https://learn.microsoft.com/aspnet/core/" target="_blank">About</a>
+        </div> *@
+ 
+        <article class="content px-4">
+            @Body
+        </article>
+    </main>
+</div>
+
+<SyncCoordinator />
+
+<div id="blazor-error-ui" data-nosnippet>
+    An unhandled error has occurred.
+    <a href="." class="reload">Reload</a>
+    <span class="dismiss">🗙</span>
+</div>
+
+

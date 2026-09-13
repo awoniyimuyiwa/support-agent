@@ -1,0 +1,57 @@
+﻿@inject ApiClient ApiClient
+@inject NavigationManager Nav
+@inject ILogger<LogoutButton> Logger
+
+<button type="button" class="btn btn-outline-danger d-inline-flex align-items-center gap-2" @onclick="HandleLogout" disabled="@_isProcessing">
+    @if (_isProcessing)
+    {
+        <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+        <span>Logging out...</span>
+    }
+    else
+    {
+        <span class="bi bi-box-arrow-right"></span>
+        <span>Sign Out</span>
+    }
+</button>
+
+@code {
+    private bool _isProcessing = false;
+
+    private async Task HandleLogout()
+    {
+        _isProcessing = true;
+        StateHasChanged();
+
+        try
+        {
+            Logger.LogInformation("Initiating API-driven logout sequence...");
+
+            // Fire the proxy-aligned API endpoint to wipe the cookie
+            var response = await ApiClient.Logout();
+
+            if (response.IsSuccessStatusCode)
+            {
+                Logger.LogInformation("API successfully dropped cookies. Triggering hard view reload.");
+
+                // Force a hard reload back to the login route with forceLoad: true.
+                // This strips out all client memory spaces, flushes out old deserialized state,
+                // and accurately initializes the user context as Unauthenticated on the next pass.
+                Nav.NavigateTo("/login", forceLoad: true);
+            }
+            else
+            {
+                Logger.LogWarning("API rejected logout command with status: {StatusCode}", response.StatusCode);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Logout routing routine caught an exception: {Message}", ex.Message);
+        }
+        finally
+        {
+            _isProcessing = false;
+            StateHasChanged();
+        }
+    }
+}

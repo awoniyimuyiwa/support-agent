@@ -1,0 +1,12 @@
+{
+  "$schema": "https://schemastore.org",
+  "profiles": {
+    "Development": {
+      "commandName": "Project",
+      "launchBrowser": false,
+      "environmentVariables": {
+        "DOTNET_ENVIRONMENT": "Development"
+      }
+    }
+  }
+}

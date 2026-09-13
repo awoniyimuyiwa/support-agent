@@ -1,0 +1,221 @@
+﻿@typeparam TItem
+@typeparam TKey where TKey : notnull
+
+@using System.Collections.Immutable
+@using System.Reflection
+@using System.Text.RegularExpressions
+@using Web.Client.Models
+
+@if (IsOpen && Conflicts.Any())
+{
+    <div class="modal-backdrop fade show"></div>
+
+    <div class="modal d-block show animate-fade-in" tabindex="-1" role="dialog" aria-labelledby="conflictModalTitle" aria-modal="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered" role="document">
+            <div class="modal-content shadow-lg border-0 conflict-modal-content">
+
+                <div class="modal-header bg-warning text-dark border-bottom-0 py-3 conflict-modal-header">
+                    <h5 class="modal-title fw-bold d-flex align-items-center" id="conflictModalTitle">
+                        <span class="bi bi-exclamation-triangle-fill me-2"></span>
+                        Field-Level Conflict Picker
+                    </h5>
+                    <span class="badge bg-dark ms-auto">Record @(_currentIndex + 1) of @Conflicts.Count</span>
+                </div>
+
+                <div class="modal-body px-4 py-3">
+                    <p class="text-secondary mb-3">
+                        @DescriptionText
+                    </p>
+
+                    @if (_activeConflictItem != null)
+                    {
+                        <!-- Item Header Fragment (e.g. Displaying ID or Title of active ticket) -->
+                        <div class="mb-3 p-2 bg-light border rounded">
+                            @ItemHeader(_activeConflictItem)
+                        </div>
+
+                        <div class="table-responsive border rounded conflict-table-container">
+                            <table class="table table-hover align-middle mb-0">
+                                <thead class="table-light sticky-top conflict-table-header">
+                                    <tr>
+                                        <th class="ps-3">Attribute / Property</th>
+                                        <th class="text-center">Your Offline Version</th>
+                                        <th class="text-center">Server Version</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var field in _currentFields)
+                                    {
+                                        var isSelectedClient = _fieldChoices.TryGetValue(field.PropertyName, out var choice) && choice == ResolutionChoice.Client;
+                                        var isSelectedServer = !_fieldChoices.ContainsKey(field.PropertyName) || choice == ResolutionChoice.Server;
+
+                                        <tr>
+                                            <td class="ps-3 fw-bold text-secondary">@field.PropertyDisplayName</td>
+
+                                            <!-- Client Field Selection Cell -->
+                                            <td class="text-center p-2 @(isSelectedClient ? "field-selected-client" : "")">
+                                                <div class="mb-1 font-monospace small">@field.ClientValue</div>
+                                                <button type="button" class="btn btn-sm w-100 @(isSelectedClient ? "btn-danger" : "btn-outline-danger")"
+                                                        @onclick='() => MakeFieldChoice(field.PropertyName, ResolutionChoice.Client)'>
+                                                    Keep Mine
+                                                </button>
+                                            </td>
+
+                                            <!-- Server Field Selection Cell -->
+                                            <td class="text-center p-2 @(isSelectedServer ? "field-selected-server" : "")">
+                                                <div class="mb-1 font-monospace small">@field.ServerValue</div>
+                                                <button type="button" class="btn btn-sm w-100 @(isSelectedServer ? "btn-success" : "btn-outline-success")"
+                                                        @onclick='() => MakeFieldChoice(field.PropertyName, ResolutionChoice.Server)'>
+                                                    Accept Server
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+
+                <div class="modal-footer bg-light border-top-0 py-3 d-flex justify-content-between">
+                    <button type="button" class="btn btn-secondary px-4" @onclick="CloseModal">Cancel Sync</button>
+
+                    <button type="button" class="btn btn-primary px-4 fw-bold" @onclick="AdvanceOrSubmit">
+                        @(IsLastRecord ? "Apply All Resolutions" : "Next Record →")
+                    </button>
+                </div>
+
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    public record FieldDiff(
+        string PropertyName, 
+        string PropertyDisplayName, 
+        string ClientValue, 
+        string ServerValue);
+
+    [Parameter] 
+    public bool IsOpen { get; set; }
+
+    [Parameter]
+    public ImmutableList<(TItem Client, TItem Server)> Conflicts { get; set; } = ImmutableList<(TItem Client, TItem Server)>.Empty;
+
+    [Parameter]
+    public string DescriptionText { get; set; } = "Values differ across attributes. Choose which specific values to preserve for each row attribute field:";
+
+    [Parameter] 
+    public Func<TItem, TKey> KeySelector { get; set; } = default!;
+
+    [Parameter] 
+    public RenderFragment<TItem> ItemHeader { get; set; } = default!;
+
+    [Parameter] 
+    public EventCallback OnCancel { get; set; }
+
+    // Returns a nested look dictionary mapping [RecordKey -> [PropertyName -> ChosenSide]]
+    [Parameter] 
+    public EventCallback<Dictionary<TKey, Dictionary<string, ResolutionChoice>>> OnResolve { get; set; }
+
+    private int _currentIndex = 0;
+
+    private TItem? _activeConflictItem;
+
+    private List<FieldDiff> _currentFields = new();
+
+    // The master nested tracking map matrix
+    private readonly Dictionary<TKey, Dictionary<string, ResolutionChoice>> _masterResolutionMap = new();
+
+    private Dictionary<string, ResolutionChoice> _fieldChoices = new();
+
+    private bool IsLastRecord => _currentIndex >= Conflicts.Count - 1;
+
+    protected override void OnParametersSet()
+    {
+        if (IsOpen 
+            && Conflicts.Any() 
+            && _activeConflictItem == null)
+        {
+            _currentIndex = 0;
+            _masterResolutionMap.Clear();
+            LoadRecordConflictFields();
+        }
+    }
+
+    private async Task AdvanceOrSubmit()
+    {
+        var recordKey = KeySelector(_activeConflictItem!);
+        _masterResolutionMap[recordKey] = new Dictionary<string, ResolutionChoice>(_fieldChoices);
+
+        if (IsLastRecord)
+        {
+            await OnResolve.InvokeAsync(_masterResolutionMap);
+            ClearComponentState();
+        }
+        else
+        {
+            _currentIndex++;
+            LoadRecordConflictFields();
+        }
+    }
+
+    private void ClearComponentState()
+    {
+        _masterResolutionMap.Clear();
+        _fieldChoices.Clear();
+        _currentFields.Clear();
+        _activeConflictItem = default;
+        _currentIndex = 0;
+    }
+
+    private async Task CloseModal()
+    {
+        ClearComponentState();
+        await OnCancel.InvokeAsync();
+    }
+
+    private void LoadRecordConflictFields()
+    {
+        _currentFields.Clear();
+        _fieldChoices = new();
+
+        if (_currentIndex >= Conflicts.Count) { return; }
+
+        // Destructure the coupled pair cleanly right from your tuple index
+        var (clientItem, serverItem) = Conflicts[_currentIndex];
+        _activeConflictItem = clientItem;
+
+        var properties = typeof(TItem).GetProperties(BindingFlags.Public | BindingFlags.Instance);
+        foreach (var prop in properties)
+        {
+            // Skip baseline metadata parameters that are system-managed or key identity indices
+            if (prop.Name is "Id" or "ConcurrencyStamp" or "SyncStatus" or "LastUpdatedAt" or "CreatedAt" or "UpdatedAt")
+                continue;
+
+            var clientVal = prop.GetValue(clientItem)?.ToString() ?? "[Empty]";
+            var serverVal = prop.GetValue(serverItem)?.ToString() ?? "[Empty]";
+
+            if (clientVal != serverVal)
+            {
+                var displayName = Regex.Replace(prop.Name, "(\\B[A-Z])", " $1");
+                _currentFields.Add(new FieldDiff(
+                    prop.Name,
+                    displayName,
+                    clientVal,
+                    serverVal));
+
+                // Initialize field default selection path to Server
+                _fieldChoices[prop.Name] = ResolutionChoice.Server;
+            }
+        }
+    }
+
+    private void MakeFieldChoice(
+        string propertyName, 
+        ResolutionChoice choice)
+    {
+        _fieldChoices[propertyName] = choice;
+    }
+}

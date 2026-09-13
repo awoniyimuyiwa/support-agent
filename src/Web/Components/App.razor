@@ -1,0 +1,73 @@
+﻿@using Microsoft.Extensions.Configuration
+@using Api.Contracts
+@using Api.Contracts.Extensions
+
+@inject IConfiguration Configuration
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <link rel="stylesheet" href="@Assets["lib/bootstrap/dist/css/bootstrap.min.css"]" />
+    <link rel="stylesheet" href="@Assets["app.css"]" />
+    <link rel="stylesheet" href="@Assets["Web.styles.css"]" />
+    @*
+      Loads client component styles.
+      The 'app.css' file inside the Web.Client project does not need to be deleted.
+      During compilation, the .NET build engine bundles it alongside component scoped styles
+      and outputs it as this single 'Web.Client.styles.css' asset file.
+    *@
+    <link rel="stylesheet" href="@Assets["Web.Client.styles.css"]" />
+    <link rel="manifest" href="@Assets["manifest.json"]" />
+    <ImportMap />
+    <link rel="icon" type="image/png" href="@Assets["favicon.png"]" />
+    @* 
+       Establishes the default fallback browser tab title using the global application configuration name string.
+       Note: This baseline title is treated as a temporary default; when a user navigates to a sub-page, 
+       the sub-page's local <PageTitle> component will completely overwrite this value in the browser tab.
+    *@
+    <PageTitle>@Configuration["AppName"].AddSpacesToPascalCase</PageTitle>
+
+    <HeadOutlet @rendermode="InteractiveAuto" />
+</head>
+
+<body>
+    @*
+      💡 DEPLOYMENT ARCHITECTURE NOTE:
+      'App.razor' must exist ONLY inside the main server hosting project (Web/Components/).
+      It must BE COMPLETELY DELETED from the Web.Client project root directory.
+      This is because App.razor serves as the master HTML layout shell (handling <html>, <head>, and <body>).
+      In an InteractiveAuto framework, the server project must orchestrate the initial browser request,
+      bootstrapping the static shell before handing execution off to the client-side WebAssembly engine.
+    *@
+    <Web.Client.Routes @rendermode="InteractiveAuto" />
+    <script src="@Assets["_framework/blazor.web.js"]"></script>
+
+    <!-- Read the anti-forgery cookie token for AJAX client calls -->
+    <script>
+            function getCookie(name) {
+                const value = `; ${document.cookie}`;
+                const parts = value.split(`; ${name}=`);
+                if (parts.length === 2) return parts.pop().split(';').shift();
+                return ""; // Return an explicit empty string if the cookie doesn't exist
+            }
+
+            window.getAntiforgeryToken = () => {
+                return getCookie(@((MarkupString)System.Text.Json.JsonSerializer.Serialize(Constants.AntiforgeryJSReadableCookieName)));
+            };
+    </script>
+
+    <!-- Initialize PWA background behaviors -->
+    <!--<script>
+            if ('serviceWorker' in navigator) {
+                // Removed the leading slash to ensure compatibility behind proxy path prefixes
+                navigator.serviceWorker.register('service-worker.js')
+                    .then(reg => console.log('PWA Service Worker registered safely:', reg.scope))
+                    .catch(err => console.error('PWA registration failed:', err));
+            }
+    </script>-->
+</body>
+</html>

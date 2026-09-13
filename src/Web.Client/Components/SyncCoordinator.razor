@@ -1,0 +1,392 @@
+﻿@* Force Interactive Auto with no server-side pre-rendering since this should run only in the browser*@
+@rendermode @(new InteractiveAutoRenderMode(prerender: false))
+
+@using System.Collections.Immutable
+@using System.Net
+@using Microsoft.AspNetCore.Components.Authorization
+@using Web.Client.Data
+@using Web.Client.Models;
+@using Web.Client.Services
+
+@inject ApiClient ApiClient
+@inject IJSRuntime JS
+@inject ISyncService SyncService
+@inject AuthenticationStateProvider AuthStateProvider
+@inject ILogger<SyncCoordinator> Logger
+@inject NavigationManager Nav
+
+@implements IDisposable
+
+@if (_isSyncing)
+{
+    <div class="position-fixed bottom-0 end-0 m-3 p-3 bg-primary text-white rounded shadow-lg" style="z-index: 9999;">
+        <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+        Synchronizing offline updates with server...
+    </div>
+}
+
+@if (_showRaceConditionAlert)
+{
+    <!-- Wrapped inside a fixed layout viewport panel container to float cleanly over any page -->
+    <div class="position-fixed bottom-0 start-0 m-4 z-3 animate-fade-in" style="max-width: 440px; z-index: 9999;">
+        <div class="alert alert-warning border-warning shadow-lg p-4 mb-0 d-flex align-items-start gap-3 bg-white">
+            <span class="bi bi-arrow-clockwise fs-3 text-warning mt-1 flex-shrink-0 animate-spin"></span>
+            <div class="flex-grow-1">
+                <h6 class="fw-bold text-dark mb-1">Workspace Sync Paused</h6>
+                <p class="text-secondary small mb-3">
+                    Another user updated these records on the server while you were offline.
+                    Please pull down fresh cloud data to review and merge your data.
+                </p>
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-warning btn-sm fw-bold px-3 shadow-sm" @onclick="ForceManualRefresh" disabled="@_isRefreshing">
+                        @if (_isRefreshing)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                            <span>Refreshing...</span>
+                        }
+                        else
+                        {
+                            <span>Pull Server Updates</span>
+                        }
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm px-3" @onclick="() => _showRaceConditionAlert = false">
+                        Dismiss
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<ConflictResolutionModal TItem="WeatherForecast"                    
+    TKey="Guid"                     
+    IsOpen="_showWeatherModal"                    
+    Conflicts="_weatherConflicts"                    
+    KeySelector="@(wf => wf.Id)"                     
+    DescriptionText="Weather update values differ across attributes. Choose which specific values to preserve for each row attribute field:"                     
+    OnCancel="CancelWeather"                     
+    OnResolve="ApplyWeatherResolutions">
+    <ItemHeader Context="forecast">
+        <h6 class="mb-0 fw-bold text-primary">Weather Forecast for @forecast.Date.ToShortDateString()</h6>
+        <small class="text-muted font-monospace text-uppercase" style="font-size: 0.65rem;">Reference Pointer: @forecast.Id</small>
+    </ItemHeader>
+</ConflictResolutionModal>
+
+<ConflictResolutionModal TItem="Ticket"                    
+    TKey="Guid"                    
+    IsOpen="_showTicketModal"                     
+    Conflicts="_ticketConflicts"                     
+    KeySelector="@(t => t.Id)"                     
+    DescriptionText="Ticket update values differ across attributes. Choose which specific values to preserve for each row attribute field:"                     
+    OnCancel="CancelTickets"                    
+    OnResolve="ApplyTicketResolutions">
+    <ItemHeader Context="ticket">
+        <h6 class="mb-0 fw-bold text-primary">@ticket.Title</h6>
+        <small class="text-muted font-monospace text-uppercase" style="font-size: 0.65rem;">System Reference Key: @ticket.Id</small>
+    </ItemHeader>
+</ConflictResolutionModal>
+
+
+@code {
+    private DotNetObjectReference<SyncCoordinator>? _objRef;
+
+    private PeriodicTimer? _refreshTimer;
+
+    private CancellationTokenSource? _cts;
+
+    private IJSObjectReference? _networkModule;
+
+    private bool _isSyncing = false;
+
+    private bool _isOnline = true;
+
+    private bool _isDisposed = false;
+
+    private bool _showRaceConditionAlert = false;
+
+    private bool _isRefreshing = false;
+
+    // Weather forecast conflict States
+    private bool _showWeatherModal = false;
+    private ImmutableList<(WeatherForecast Client, WeatherForecast Server)> _weatherConflicts = [];
+
+    // Ticket conflict States
+    private bool _showTicketModal = false;
+    private ImmutableList<(Ticket Client, Ticket Server)> _ticketConflicts = [];
+
+    public void Dispose()
+    {
+        _isDisposed = true;
+        _cts?.Cancel();
+        _cts?.Dispose();
+        _refreshTimer?.Dispose();
+        _objRef?.Dispose();
+
+        if (_networkModule is not null
+            && OperatingSystem.IsBrowser())
+        {
+            _ = UnregisterNetworkListenersAsync(_networkModule);
+            _networkModule = null;
+        }
+
+        GC.SuppressFinalize(this);
+    }
+
+    [JSInvokable]
+    public async Task OnConnectionStatusChanged(bool onlineStatus)
+    {
+        if (_isDisposed) { return; }
+
+        _isOnline = onlineStatus;
+        if (_isOnline && await IsUserAuthenticated())
+        {
+            await Sync();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) { return; }
+
+        try
+        {
+            _objRef = DotNetObjectReference.Create(this);
+
+            _networkModule = await JS.InvokeAsync<IJSObjectReference>("import", "./networkListener.js");
+            _isOnline = await _networkModule.InvokeAsync<bool>("registerNetworkListener", _objRef);
+
+            if (_isOnline && await IsUserAuthenticated())
+            {
+                await Sync();
+            }
+
+            _cts = new CancellationTokenSource();
+            _refreshTimer = new PeriodicTimer(TimeSpan.FromMinutes(10));
+            _ = StartBackgroundSessionRefreshLoop(_cts.Token);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to initialize global sync coordinator.");
+        }
+    }
+
+    private async Task ApplyTicketResolutions(
+        Dictionary<Guid, Dictionary<string, ResolutionChoice>> decisions)
+    {
+        _showTicketModal = false;
+
+        var serverRecords = _ticketConflicts
+        .Select(x => x.Server)
+        .ToImmutableList();
+
+        await SyncService.ApplyResolutions<Ticket>(
+            decisions,
+            serverRecords,
+            ctx => ctx.Tickets);
+
+        await Sync();
+    }
+
+    private async Task ApplyWeatherResolutions(
+        Dictionary<Guid, Dictionary<string, ResolutionChoice>> decisions)
+    {
+        _showWeatherModal = false;
+
+        // Extract the server records from our unified tuple structure.
+        // The server record is used as the baseline, only patching individual fields
+        // where the user explicitly chose to keep their own modifications.
+        var serverRecords = _weatherConflicts
+        .Select(x => x.Server)
+        .ToImmutableList();
+
+        // Pass the nested field-level choice map straight to the merge service
+        await SyncService.ApplyResolutions<WeatherForecast>(
+            decisions,
+            serverRecords,
+            ctx => ctx.WeatherForecasts);
+
+        // Instantly force background synchronization to process choices
+        await Sync();
+    }
+
+    private void CancelTickets() => _showTicketModal = false;
+
+    private void CancelWeather() => _showWeatherModal = false;
+
+    private async Task ForceManualRefresh()
+    {
+        if (_isRefreshing
+            || _isDisposed) { return; }
+
+        if (!await IsUserAuthenticated()) { return; }
+
+        try
+        {
+            _isRefreshing = true;
+            StateHasChanged();
+
+            Logger.LogInformation("[SYNC SYSTEM] Executing user-triggered manual milestone refresh pass...");
+
+            // Pull down server changes
+            await SyncService.FetchWeatherForecastDeltas();
+            await SyncService.FetchTicketDeltas();
+
+            // Clear the alert state banner now that the database state is synchronized
+            _showRaceConditionAlert = false;
+
+            // Re-render the active screen layouts with the freshly pulled data baselines
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "[SYNC ERROR] Manual milestone update request failed: {ErrorMessage}", ex.Message);
+        }
+        finally
+        {
+            _isRefreshing = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task StartBackgroundSessionRefreshLoop(CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (await _refreshTimer!.WaitForNextTickAsync(cancellationToken))
+            {
+                if (_isDisposed) { break; }
+                if (!_isOnline) { continue; }
+
+                // Pull the current authentication state natively
+                var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+
+                // If the user isn't logged in, skip the network call entirely!
+                if (authState.User.Identity?.IsAuthenticated != true)
+                {
+                    Logger.LogDebug("User is anonymous. Skipping background keepalive sync.");
+                    continue;
+                }
+
+                try
+                {
+                    var response = await ApiClient.GetUserInfoResponse(cancellationToken);
+
+                    // Handle expected statuses gracefully as logical paths, not crashes
+                    if (response.StatusCode == HttpStatusCode.Unauthorized)
+                    {
+                        Logger.LogInformation("Session expired. Forcing re-authentication.");
+
+                        // Clear local application states here if needed (e.g. SQLite flags)
+
+                        // Force a hard browser load to clear the .NET 10 in-memory auth state
+                        Nav.NavigateTo("/login", forceLoad: true);
+                        break;
+                    }
+                    else if (response.IsSuccessStatusCode)
+                    {
+                        Logger.LogInformation("Authentication cookie session successfully extended.");
+                    }
+                    else
+                    {
+                        Logger.LogWarning("Unexpected keepalive response: {StatusCode}", response.StatusCode);
+                    }
+                }
+                catch (HttpRequestException ex)
+                {
+                    Logger.LogError(ex, "Keepalive network check failed temporarily: {ErrorMessage}", ex.Message);
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Clean teardown when app token cancel routine executes smoothly on component dispose
+        }
+    }
+
+    private async Task Sync()
+    {
+        if (_isSyncing
+            || !_isOnline
+            || _isDisposed) return;
+
+        if (!await IsUserAuthenticated())
+        {
+            return;
+        }
+
+        try
+        {
+            _isSyncing = true;
+            StateHasChanged();
+
+            // Flush local changes and unpack structural tuple result sets containing both states
+            var weatherConflicts = await SyncService.SyncPendingChanges<WeatherForecast>(
+                ctx => ctx.WeatherForecasts,
+                SyncService.SyncPendingWeatherForecastChanges);
+
+            var ticketConflicts = await SyncService.SyncPendingChanges<Ticket>(
+                ctx => ctx.Tickets,
+                SyncService.SyncPendingTicketChanges);
+
+            if (weatherConflicts.Any())
+            {
+                _weatherConflicts = weatherConflicts;
+                _showWeatherModal = true;
+            }
+
+            if (ticketConflicts.Any())
+            {
+                _ticketConflicts = ticketConflicts;
+                _showTicketModal = true;
+            }
+
+            // Fetch incremental delta changes
+            await SyncService.FetchWeatherForecastDeltas();
+            await SyncService.FetchTicketDeltas();
+        }
+        catch (HttpRequestException ex)
+        {
+            if (ex.StatusCode == HttpStatusCode.Conflict)
+            {
+                // Mid-flight collision intercepted!
+                // Turn on the user-facing alert state. Do not execute background downloads
+                _showRaceConditionAlert = true;
+
+                Logger.LogInformation("[SYNC SYSTEM] Mid-flight collision intercepted! Running automatic baseline download refresh...{0}");
+            }
+            else
+            {
+                Logger.LogError(ex, "Background bidirectional sync failed: {ErrorMessage}", ex.Message);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Background bidirectional sync failed: {ErrorMessage}", ex.Message);
+        }
+        finally
+        {
+            _isSyncing = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task<bool> IsUserAuthenticated()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        return authState.User.Identity?.IsAuthenticated == true;
+    }
+
+    private async Task UnregisterNetworkListenersAsync(IJSObjectReference module)
+    {
+        try
+        {
+            await module.InvokeVoidAsync("unregisterNetworkListener");
+            await module.DisposeAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error tearing down JS modules safely: {ErrorMessage}", ex.Message);
+        }
+    }
+}
+

@@ -1,0 +1,61 @@
+﻿@inject NavigationManager Navigation
+@implements IDisposable
+
+<div class="d-flex align-items-center gap-2 small text-white-50 fw-medium">
+    <a href="dashboard" class="text-white-50 text-decoration-none d-flex align-items-center justify-content-center link-hover-opacity" style="transition: opacity 0.15s ease;">
+        <span class="bi bi-house-door-fill text-white" style="opacity: 0.85;"></span>
+    </a>
+
+    @foreach (var segment in _segments)
+    {
+        <span class="text-secondary" style="font-size: 0.75rem; opacity: 0.6;">/</span>
+        <span class="text-white text-capitalize fw-semibold" style="letter-spacing: 0.01em;">
+            @segment.Replace("-", " ")
+        </span>
+    }
+</div>
+
+
+@code {
+    private List<string> _segments = [];
+
+    public void Dispose()
+    {
+        Navigation.LocationChanged -= OnLocationChanged;
+    }
+
+    protected override void OnInitialized()
+    {
+        Navigation.LocationChanged += OnLocationChanged;
+        ParseSegments();
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        ParseSegments();
+        StateHasChanged();
+    }
+
+    private void ParseSegments()
+    {
+        var relativePath = Navigation.ToBaseRelativePath(Navigation.Uri);
+
+        // Strip out trailing parameter arrays safely
+        var cleanPath = relativePath.Split('?')[0];
+
+        // Grab all valid path route keys natively
+        var rawSegments = cleanPath
+            .Split('/', StringSplitOptions.RemoveEmptyEntries)
+            .ToList();
+
+        // If we are at the application portal home, provide a baseline value
+        if (rawSegments.Count == 0 && relativePath.StartsWith("dashboard", StringComparison.OrdinalIgnoreCase))
+        {
+            _segments = new List<string> { "dashboard" };
+        }
+        else
+        {
+            _segments = rawSegments;
+        }
+    }
+}

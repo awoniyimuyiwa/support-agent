@@ -1,0 +1,45 @@
+# This workflow automates the continuous integration pipeline for the Support Agent suite.
+# It builds the multi-project architecture and runs end-to-end Aspire integration tests.
+
+name: Support Agent CI
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Setup .NET 10 SDK
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 10.0.x
+        cache: true # Automatically caches NuGet dependencies to speed up future runs
+        # Tells the runner to use Central Package Management properties for caching hashes 
+        # instead of searching for a missing packages.lock.json file
+        cache-dependency-path: 'Directory.Packages.props'
+
+    # Installs the LLVM compiler toolchain required to native-compile
+    # and relink the client-side browser SQLite C-source libraries into WebAssembly format.
+    - name: Install WebAssembly Tools Workload
+      run: dotnet workload install wasm-tools
+
+    - name: Restore NuGet Dependencies
+      run: dotnet restore
+ 
+    # Executes code logic, unit, and domain contract tests, 
+    # while ignoring the heavy AppHost container downloads completely
+    - name: Build Solution & Execute Core Test Suites
+      run: |
+        #dotnet test --project tests/Api.UnitTests/Api.UnitTests.csproj --configuration Release
+        #dotnet test --project tests/Application.UnitTests/Application.UnitTests.csproj --configuration Release

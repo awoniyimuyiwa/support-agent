@@ -1,0 +1,40 @@
+﻿@inject NavigationManager Navigation
+
+@code {
+    /// <summary>
+    /// Do not remove! Captures the cascading runtime authentication state task.
+    /// </summary>
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        // If running on the Server during the pre-render phase, 
+        // exit immediately. Let the server finish rendering a clean shell.
+        if (!OperatingSystem.IsBrowser() || AuthStateTask is null) 
+        {
+            return;
+        }
+
+        // This block will execute EXCLUSIVELY inside the browser WebAssembly sandbox
+        var authState = await AuthStateTask;
+        var user = authState.User;
+
+        if (user.Identity?.IsAuthenticated != true)
+        {
+            var currentPath = Navigation.ToBaseRelativePath(Navigation.Uri);
+            
+            // Prevent recursive interception loops if they are already typing /login
+            if (currentPath.StartsWith("login", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            var returnUrl = string.IsNullOrWhiteSpace(currentPath) ? "/" : $"/{currentPath}";
+            var escapedReturnUrl = Uri.EscapeDataString(returnUrl);
+
+            // Execute a clean, standard single-page app layout transition
+            Navigation.NavigateTo($"login?returnUrl={escapedReturnUrl}", forceLoad: false);
+        }
+    }
+}
