@@ -111,7 +111,7 @@ dotnet workload restore
 **Clone the Repository**:
 
 ```bash
-git clone https://github.com/awoniyimuyiwa/suport-agent
+git clone https://github.com/awoniyimuyiwa/support-agent
 cd SupportAgent
 ```
 
