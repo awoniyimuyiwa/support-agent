@@ -5,7 +5,7 @@ name: Support Agent CI
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "master", "dev" ]
   pull_request:
     branches: [ "master" ]
 
@@ -36,10 +36,15 @@ jobs:
 
     - name: Restore NuGet Dependencies
       run: dotnet restore
- 
-    # Executes code logic, unit, and domain contract tests, 
-    # while ignoring the heavy AppHost container downloads completely
-    - name: Build Solution & Execute Core Test Suites
+
+    # .NET 10 automatically pulls down the required background testing control plane
+    # assets via NuGet package graphs during this execution block
+    - name: Build Solution & Execute AppHost Integration Tests
+      env: 
+        # Force the AppHost out of Dev mode so it drops pgAdmin, RedisInsight, and Volumes
+        ASPNETCORE_ENVIRONMENT: Testing
+        # Tell the C compiler to skip heavy optimization passes on the SQLite binary
+        WasmBuildingForEditor: "true"
       run: |
-        #dotnet test --project tests/Api.UnitTests/Api.UnitTests.csproj --configuration Release
-        #dotnet test --project tests/Application.UnitTests/Application.UnitTests.csproj --configuration Release
+        dotnet test --configuration Release \
+          --timeout 15m
