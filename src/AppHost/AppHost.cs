@@ -1,7 +1,6 @@
 using Azure.Security.KeyVault.Keys;
 using AzureKeyVaultEmulator.Aspire.Hosting;
 using Microsoft.Extensions.Hosting;
-using System.Text;
 
 var builder = DistributedApplication.CreateBuilder(args);
 
@@ -12,11 +11,11 @@ var kvOptions = isDev
     ? new KeyVaultEmulatorOptions { Persist = true, Port = 4997 }
     : new KeyVaultEmulatorOptions { Persist = false };
 
-var keyVault = builder.AddAzureKeyVault("KeyVault")
+var keyVault = builder.AddAzureKeyVault("keyVault")
     .RunAsEmulator(kvOptions)
     .SeedWithKey("data-protection-key", KeyType.Rsa);
 
-var appConfig = builder.AddAzureAppConfiguration("AppConfig")
+var appConfig = builder.AddAzureAppConfiguration("appConfig")
     .RunAsEmulator(emulator =>
     {
         if (isDev)
@@ -35,7 +34,7 @@ var appConfig = builder.AddAzureAppConfiguration("AppConfig")
         .WithEnvironment("Authentication:Anonymous:AnonymousUserRole", "Owner");
     });
 
-var cache = builder.AddRedis("Redis");
+var cache = builder.AddRedis("redis");
 if (isDev)
 {
     cache.WithDataVolume()
@@ -55,14 +54,19 @@ var supportDb = postgres.AddDatabase(
     "DefaultConnection",
     databaseName: "SupportAgent");
 
+// Reads secrets.json configuration layer first during local development.
+// If running in GitHub Actions (CI) where secrets.json is missing, 
+// it falls back to these safe, non-sensitive credential values automatically.
+var adminEmail = builder.Configuration["AdminUser:Email"] ?? "admin@supportagent.test";
+var adminUser = builder.Configuration["AdminUser:UserName"] ?? "admin";
+var adminPass = builder.Configuration["AdminUser:Password"] ?? "Secret@123";
+
 var dbMigrator = builder.AddProject<Projects.DbMigrator>("db-migrator")
     .WithReference(supportDb)
     .WaitFor(supportDb)
-    // Injects safe, non-sensitive fallback credential values
-    // If secrets.json exists (locally), .NET configuration providers will overwrite these automatically.
-    .WithEnvironment("AdminUser__Email", "ci-admin@supportagent.internal")
-    .WithEnvironment("AdminUser__UserName", "admin")
-    .WithEnvironment("AdminUser__Password", "Pass@word123!");
+    .WithEnvironment("AdminUser__Email", adminEmail)
+    .WithEnvironment("AdminUser__UserName", adminUser)
+    .WithEnvironment("AdminUser__Password", adminPass   );
 
 var apiService = builder.AddProject<Projects.Api>("api")
     .WithHttpHealthCheck("/health")
