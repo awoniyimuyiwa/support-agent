@@ -11,13 +11,25 @@ public class WebTests
     private static readonly TimeSpan DefaultTimeout = TimeSpan.FromMinutes(15);
 
     [Fact]
-    public async Task GetWebResourceRootReturnsOkStatusCode()
+    public async Task GetWebResourceRoot_ReturnsOk()
     {
         // Arrange
         var cancellationToken = TestContext.Current.CancellationToken;
 
-       
-        var appHost = await DistributedApplicationTestingBuilder.CreateAsync<Projects.AppHost>(cancellationToken);
+        var appHost = await DistributedApplicationTestingBuilder.CreateAsync<Projects.AppHost>(
+            args: [
+                "--environment=Testing",
+                
+                // Force Docker to isolate these test containers away from that of dev environment
+                "--app-host-project-name=supportagent-tests",
+
+                // Pass the exact parameter override formats. This tells Aspire:
+                // "I am providing the passwords explicitly. Do not generate random ones and do not write to secrets.json
+                "Parameters:postgres-password=SecretTestPassword123!",
+                "Parameters:redis-password=SecretTestPassword123!"],
+
+            cancellationToken);
+
         appHost.Services.AddLogging(logging =>
         {
             logging.SetMinimumLevel(LogLevel.Debug);
@@ -26,9 +38,17 @@ public class WebTests
             logging.AddFilter("Aspire.", LogLevel.Debug);
             // To output logs to the xUnit.net ITestOutputHelper, consider adding a package from https://www.nuget.org/packages?q=xunit+logging
         });
+       
+
         appHost.Services.ConfigureHttpClientDefaults(clientBuilder =>
         {
             clientBuilder.AddStandardResilienceHandler();
+
+            // Configure the primary message handler to bypass self-signed certificate errors
+            clientBuilder.ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+            {
+                ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
+            });
         });
 
         await using var app = await appHost
@@ -41,7 +61,8 @@ public class WebTests
         var httpClient = app.CreateHttpClient("web");
         await app.ResourceNotifications
             .WaitForResourceHealthyAsync("web", cancellationToken)
-            .WaitAsync(DefaultTimeout, cancellationToken);
+            .WaitAsync(DefaultTimeout, 
+            cancellationToken);
 
         // Act        
         var response = await httpClient.GetAsync("/", cancellationToken);
