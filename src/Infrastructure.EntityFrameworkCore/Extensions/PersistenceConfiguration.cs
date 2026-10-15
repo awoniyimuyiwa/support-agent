@@ -17,6 +17,7 @@ public static class PersistenceConfiguration
         {
             builder.Services.AddScoped<IAuditLogManager, AuditLogManager>();
             builder.Services.AddScoped<CustomSaveChangesInterceptor>();
+            builder.Services.AddScoped<BatchDeleteDbCommandInterceptor>();
 
             // ARCHITECTURAL DECISION: Manual Scoped Registration Over Aspire DbContext Pooling (builder.AddNpgsqlDbContext<ApplicationDbContext>().
             //
@@ -38,6 +39,7 @@ public static class PersistenceConfiguration
 
                 options.Configure(configuration, connectionName);
                 options.AddInterceptors(sp.GetRequiredService<CustomSaveChangesInterceptor>());
+                options.AddInterceptors(sp.GetRequiredService<BatchDeleteDbCommandInterceptor>());
             });
 
             // Instruct Aspire to append telemetry, health checks, and logging to custom context
@@ -63,6 +65,9 @@ public static class PersistenceConfiguration
             builder.Services.AddScoped<IAuditLogRepository, AuditLogRepository>();
             builder.Services.AddScoped<IBackgroundJobRepository, BackgroundJobRepository>();
             builder.Services.AddScoped<IBackgroundServiceStatRepository, BackgroundServiceStatRepository>();
+            builder.Services.AddScoped<IDocumentCategoryRepository, DocumentCategoryRepository>();
+            builder.Services.AddScoped<IDocumentRepository, DocumentRepository>();
+            builder.Services.AddScoped<IDocumentVersionRepository, DocumentVersionRepository>();
             builder.Services.AddScoped<ITicketRepository, TicketRepository>();
             builder.Services.AddScoped<IUserRepository, UserRepository>();
             builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();

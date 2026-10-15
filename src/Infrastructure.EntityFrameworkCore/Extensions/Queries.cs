@@ -3,8 +3,6 @@ using Domain.BackgroundJobs;
 using Domain.Shared;
 using Microsoft.EntityFrameworkCore;
 using System.Linq.Expressions;
-using static System.Net.Mime.MediaTypeNames;
-using static System.Net.WebRequestMethods;
 
 namespace Infrastructure.EntityFrameworkCore.Extensions;
 
@@ -172,6 +170,24 @@ static class Queries
         }
     }
 
+    extension(IQueryable<ApplicationUser> query)
+    {
+        public IQueryable<UserDto> ToDto()
+        {
+            return query.Select(u => new UserDto(
+                u.Email,
+                u.FirstName,
+                u.Id,
+                u.EmailConfirmed,
+                u.LastName,
+                u.LockoutEnd,
+                u.UserName,
+                u.CreatedAt,
+                u.UpdatedAt,
+                u.ConcurrencyStamp));
+        }
+    }
+
     extension(IQueryable<AuditLog> query)
     {
         public IQueryable<InternalAuditLogDto> ToInternalDto()
@@ -215,20 +231,72 @@ static class Queries
         }
     }
 
-    extension(IQueryable<Ticket> query)
+    extension(IQueryable<Document> query)
     {
-        public IQueryable<TicketDto> ToDto()
+        public IQueryable<InternalDocumentDto> ToInternalDto()
         {
-            return query.Select(t => new TicketDto(
-                t.ExternalId,
-                t.Description,
-                t.Priority,
-                t.Status,
-                t.Title,
-                t.CreatedAt,
-                t.UpdatedAt,
-                t.ConcurrencyStamp,
-                t.IsDeleted));
+            return query.Select(d => new InternalDocumentDto(
+                d.Id,
+                d.ExternalId,
+                d.Name,
+                d.CreatedAt,
+                d.UpdatedAt,
+                d.ConcurrencyStamp));
+        }
+    }
+
+    extension(IQueryable<Document> query)
+    {
+        public IQueryable<DocumentDto> ToDto()
+        {
+            return query.Select(d => new DocumentDto(
+                d.ExternalId,
+                d.Name,
+                d.CreatedAt,
+                d.UpdatedAt,
+                d.ConcurrencyStamp));
+        }
+    }
+
+    extension(IQueryable<DocumentCategory> query)
+    {
+        public IQueryable<InternalDocumentCategoryDto> ToInternalDto()
+        {
+            return query.Select(d => new InternalDocumentCategoryDto(
+                d.Id,
+                d.ExternalId,
+                d.Description,
+                d.Name,
+                d.CreatedAt,
+                d.UpdatedAt,
+                d.ConcurrencyStamp));
+        }
+    }
+
+    extension(IQueryable<DocumentCategory> query)
+    {
+        public IQueryable<DocumentCategoryDto> ToDto()
+        {
+            return query.Select(d => new DocumentCategoryDto(
+                d.ExternalId,
+                d.Description,
+                d.Name,
+                d.CreatedAt,
+                d.UpdatedAt,
+                d.ConcurrencyStamp));
+        }
+    }
+
+    extension(IQueryable<DocumentVersion> query)
+    {
+        public IQueryable<DocumentVersionDto> ToDto()
+        {
+            return query.Select(d => new DocumentVersionDto(
+                d.ExternalId,
+                d.FileId,
+                d.FileType,
+                d.CreatedAt,
+                d.IsDeleted));
         }
     }
 
@@ -250,21 +318,20 @@ static class Queries
         }
     }
 
-    extension(IQueryable<ApplicationUser> query)
+    extension(IQueryable<Ticket> query)
     {
-        public IQueryable<UserDto> ToDto()
+        public IQueryable<TicketDto> ToDto()
         {
-            return query.Select(u => new UserDto(
-                u.Email,
-                u.FirstName,
-                u.Id,
-                u.EmailConfirmed,
-                u.LastName,
-                u.LockoutEnd,
-                u.UserName,
-                u.CreatedAt,
-                u.UpdatedAt,
-                u.ConcurrencyStamp));
+            return query.Select(t => new TicketDto(
+                t.ExternalId,
+                t.Description,
+                t.Priority,
+                t.Status,
+                t.Title,
+                t.CreatedAt,
+                t.UpdatedAt,
+                t.ConcurrencyStamp,
+                t.IsDeleted));
         }
     }
 }

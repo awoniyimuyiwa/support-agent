@@ -17,7 +17,13 @@ public static class DatabaseConfiguration
             ArgumentException.ThrowIfNullOrEmpty(connectionName);
             ArgumentNullException.ThrowIfNull(configuration);
 
-            options.UseNpgsql(configuration.GetConnectionString(connectionName));
+            options.UseNpgsql(
+                configuration.GetConnectionString(connectionName),
+                npgsqlOptions =>
+                {
+                    // Instruct Npgsql to enable the pgvector plugin engine handler extension
+                    npgsqlOptions.UseVector();
+                });
 
             // For EF Tools / CLI (Sync)
             options.UseSeeding((context, _) =>

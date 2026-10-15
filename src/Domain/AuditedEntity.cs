@@ -1,6 +1,6 @@
 namespace Domain;
 
-public interface IAuditedEntity : IHasCursor, IHasDeltaCursor, ISoftDeleted
+public interface IAuditedEntity : ICreationAuditedEntity, IHasDeltaCursor
 {
     
 }
