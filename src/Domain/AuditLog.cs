@@ -4,7 +4,7 @@ namespace Domain;
 /// <summary>
 /// Should be used to log all changes to the system, including user actions and system events. 
 /// For tracking who did what and when, which is essential for auditing, debugging, and security purposes.
-/// Neither this nor its navigation properties should extend <see cref="AuditedEntity"/> as their changes should not be audited to avoid infinite loop.
+/// Neither this nor its navigation properties should extend <see cref="AuditedEntity"/> <see cref="CreationAuditedEntity"/> or <see cref="ISoftDeleted"/> as their changes should not be audited to avoid infinite loop.
 /// </summary>
 public class AuditLog : Entity, IHasCursor
 {

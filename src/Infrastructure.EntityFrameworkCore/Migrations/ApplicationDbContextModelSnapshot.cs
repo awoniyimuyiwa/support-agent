@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
+using Pgvector;
 
 #nullable disable
 
@@ -93,7 +94,9 @@ namespace Infrastructure.EntityFrameworkCore.Migrations
                         .HasColumnType("character varying(255)");
 
                     b.Property<bool>("IsDeleted")
-                        .HasColumnType("boolean");
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
 
                     b.Property<string>("LastName")
                         .IsRequired()
@@ -201,7 +204,7 @@ namespace Infrastructure.EntityFrameworkCore.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("character varying(255)");
 
-                    b.Property<long>("UserId")
+                    b.Property<long?>("UserId")
                         .HasColumnType("bigint");
 
                     b.HasKey("Id");
@@ -278,7 +281,9 @@ namespace Infrastructure.EntityFrameworkCore.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<bool>("IsDeleted")
-                        .HasColumnType("boolean");
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
 
                     b.Property<long>("MaxRetries")
                         .HasColumnType("bigint");
@@ -373,6 +378,204 @@ namespace Infrastructure.EntityFrameworkCore.Migrations
                     b.ToTable("BackgroundServiceStats");
                 });
 
+            modelBuilder.Entity("Domain.Document", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("ConcurrencyStamp")
+                        .IsConcurrencyToken()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("DocumentCategoryId")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid>("ExternalId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DocumentCategoryId")
+                        .HasDatabaseName("IX_Documents_DocumentCategoryId_Active")
+                        .HasFilter("\"IsDeleted\" = false");
+
+                    b.HasIndex("ExternalId")
+                        .IsUnique();
+
+                    b.HasIndex("Name")
+                        .IsUnique()
+                        .HasFilter("\"IsDeleted\" = false");
+
+                    b.HasIndex("CreatedAt", "Id")
+                        .HasDatabaseName("IX_Documents_CursorPagination");
+
+                    b.HasIndex("UpdatedAt", "Id")
+                        .HasDatabaseName("IX_Documents_DeltaCursorPagination");
+
+                    b.ToTable("Documents");
+                });
+
+            modelBuilder.Entity("Domain.DocumentCategory", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("ConcurrencyStamp")
+                        .IsConcurrencyToken()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<Guid>("ExternalId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExternalId")
+                        .IsUnique();
+
+                    b.HasIndex("Name")
+                        .IsUnique()
+                        .HasFilter("\"IsDeleted\" = false");
+
+                    b.HasIndex("CreatedAt", "Id")
+                        .HasDatabaseName("IX_DocumentCategories_CursorPagination");
+
+                    b.HasIndex("UpdatedAt", "Id")
+                        .HasDatabaseName("IX_DocumentCategories_DeltaCursorPagination");
+
+                    b.ToTable("DocumentCategories");
+                });
+
+            modelBuilder.Entity("Domain.DocumentChunk", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<long>("DocumentVersionId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("Index")
+                        .HasColumnType("bigint");
+
+                    b.Property<Vector>("Vector")
+                        .IsRequired()
+                        .HasColumnType("halfvec(768)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DocumentVersionId");
+
+                    b.HasIndex("Vector")
+                        .HasAnnotation("Npgsql:StorageParameter:ef_construction", 100)
+                        .HasAnnotation("Npgsql:StorageParameter:m", 24);
+
+                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("Vector"), "hnsw");
+                    NpgsqlIndexBuilderExtensions.HasOperators(b.HasIndex("Vector"), new[] { "halfvec_cosine_ops" });
+
+                    b.ToTable("DocumentChunks");
+                });
+
+            modelBuilder.Entity("Domain.DocumentVersion", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("ContentHash")
+                        .IsRequired()
+                        .HasColumnType("char(64)")
+                        .IsFixedLength();
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("DocumentId")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid>("ExternalId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("FileId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("FileType")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExternalId")
+                        .IsUnique();
+
+                    b.HasIndex("FileId")
+                        .IsUnique();
+
+                    b.HasIndex("CreatedAt", "Id")
+                        .HasDatabaseName("IX_DocumentVersions_CursorPagination");
+
+                    b.HasIndex("DocumentId", "CreatedAt");
+
+                    b.ToTable("DocumentVersions");
+                });
+
             modelBuilder.Entity("Domain.EntityChange", b =>
                 {
                     b.Property<long>("Id")
@@ -433,7 +636,9 @@ namespace Infrastructure.EntityFrameworkCore.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<bool>("IsDeleted")
-                        .HasColumnType("boolean");
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
 
                     b.Property<int>("Priority")
                         .HasColumnType("integer");
@@ -589,9 +794,7 @@ namespace Infrastructure.EntityFrameworkCore.Migrations
                 {
                     b.HasOne("Domain.ApplicationUser", "User")
                         .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .HasForeignKey("UserId");
 
                     b.Navigation("User");
                 });
@@ -603,6 +806,37 @@ namespace Infrastructure.EntityFrameworkCore.Migrations
                         .HasForeignKey("AuditLogId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Domain.Document", b =>
+                {
+                    b.HasOne("Domain.DocumentCategory", "DocumentCategory")
+                        .WithMany()
+                        .HasForeignKey("DocumentCategoryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("DocumentCategory");
+                });
+
+            modelBuilder.Entity("Domain.DocumentChunk", b =>
+                {
+                    b.HasOne("Domain.DocumentVersion", "DocumentVersion")
+                        .WithMany("DocumentChunks")
+                        .HasForeignKey("DocumentVersionId");
+
+                    b.Navigation("DocumentVersion");
+                });
+
+            modelBuilder.Entity("Domain.DocumentVersion", b =>
+                {
+                    b.HasOne("Domain.Document", "Document")
+                        .WithMany()
+                        .HasForeignKey("DocumentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Document");
                 });
 
             modelBuilder.Entity("Domain.EntityChange", b =>
@@ -670,6 +904,11 @@ namespace Infrastructure.EntityFrameworkCore.Migrations
                     b.Navigation("AuditLogActions");
 
                     b.Navigation("EntityChanges");
+                });
+
+            modelBuilder.Entity("Domain.DocumentVersion", b =>
+                {
+                    b.Navigation("DocumentChunks");
                 });
 #pragma warning restore 612, 618
         }

@@ -22,5 +22,7 @@
 		<PackageReference Include="Microsoft.Extensions.Logging.Console" />
 		<PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
 		<PackageReference Include="Pgvector.EntityFrameworkCore" />
+		<PackageReference Include="System.Security.Cryptography.Pkcs" />
+		<PackageReference Include="System.Security.Cryptography.Xml" />
 	</ItemGroup>
 </Project>

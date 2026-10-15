@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace Infrastructure.EntityFrameworkCore;
 
@@ -14,14 +15,29 @@ static class DbInitializer
         DbContext applicationDbContext,
         CancellationToken cancellationToken = default)
     {
-        _ = cancellationToken; 
-        
+        _ = cancellationToken;
+
         // EF Core 9+ manages the transaction automatically during migrations and seeding.
-        var serviceProvider = applicationDbContext.GetService<IServiceProvider>();
-        var configuration = serviceProvider.GetRequiredService<IConfiguration>();
-        var userManager = serviceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-        var roleManager = serviceProvider.GetRequiredService<RoleManager<ApplicationRole>>();
-        var timeProvider = serviceProvider.GetRequiredService<TimeProvider>();
+
+        // Dig into the context options to find the true root application container
+        var options = applicationDbContext.GetService<IDbContextOptions>();
+        var coreExtension = options.FindExtension<CoreOptionsExtension>();
+
+        var rootProvider = coreExtension?.ApplicationServiceProvider;
+
+        // Safety Check: If the root container is missing (e.g., inside an unconfigured test setup)
+        if (rootProvider is null)
+        {
+            var internalProvider = applicationDbContext.GetService<IServiceProvider>();
+            var logger = internalProvider.GetService<ILoggerFactory>()?.CreateLogger("DatabaseSeeding");
+            logger?.LogWarning("Application service provider not found. Skipping database seeding logic.");
+            return;
+        }
+
+        var configuration = rootProvider.GetRequiredService<IConfiguration>();
+        var userManager = rootProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var roleManager = rootProvider.GetRequiredService<RoleManager<ApplicationRole>>();
+        var timeProvider = rootProvider.GetRequiredService<TimeProvider>();
 
         await SeedAdminUser(
             configuration,

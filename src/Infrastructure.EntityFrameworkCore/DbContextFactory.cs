@@ -31,11 +31,10 @@ class DbContextFactory : IDesignTimeDbContextFactory<ApplicationDbContext>
         IServiceCollection services)
     {
         services.AddSingleton(TimeProvider.System);
-        services.AddEntityFrameworkNpgsql();
         services.AddSingleton(configuration);
+
         services.AddIdentityCore<ApplicationUser>(options =>
         {
-            // Enforce strict uniqueness rules on email fields
             options.User.RequireUniqueEmail = true;
         }).AddRoles<ApplicationRole>()
         .AddEntityFrameworkStores<ApplicationDbContext>();
@@ -44,8 +43,8 @@ class DbContextFactory : IDesignTimeDbContextFactory<ApplicationDbContext>
         {
             options.Configure(configuration, "DefaultConnection");
 
-            // FORCE EF to use this specific service provider
-            options.UseInternalServiceProvider(sp);
+            
+            options.UseApplicationServiceProvider(sp);
         });
 
         var serviceProvider = services.BuildServiceProvider();
