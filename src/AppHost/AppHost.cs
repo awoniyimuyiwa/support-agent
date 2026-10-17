@@ -1,5 +1,6 @@
 using Azure.Security.KeyVault.Keys;
 using AzureKeyVaultEmulator.Aspire.Hosting;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 
 var builder = DistributedApplication.CreateBuilder(args);
@@ -33,6 +34,34 @@ var appConfig = builder.AddAzureAppConfiguration("appConfig")
         .WithEnvironment("Tenant:AnonymousAuthEnabled", "true")
         .WithEnvironment("Authentication:Anonymous:AnonymousUserRole", "Owner");
     });
+
+var storage = builder.AddAzureStorage("Storage")
+    .RunAsEmulator(emulator =>
+    {
+        if (isDev)
+        {
+            emulator.WithDataVolume();
+        }
+    });
+var blobStorage = storage.AddBlobs("blobs");
+
+var aiConfig = builder.Configuration.GetSection("AiOptions");
+
+var chatModelName = !string.IsNullOrWhiteSpace(aiConfig["ChatModelName"])
+    ? aiConfig["ChatModelName"]!
+    : throw new InvalidOperationException("AppHost Boot Error: 'AiOptions:ChatModelName' must be specified and cannot be empty or whitespace.");
+
+var embeddingModelName = !string.IsNullOrWhiteSpace(aiConfig["EmbeddingModelName"])
+    ? aiConfig["EmbeddingModelName"]!
+    : throw new InvalidOperationException("AppHost Boot Error: 'AiOptions:EmbeddingModelName' must be specified and cannot be empty or whitespace.");
+
+var ollama = builder.AddOllama("ollama");
+if (isDev)
+{
+    ollama.WithDataVolume();
+}
+var embeddingModel = ollama.AddModel(embeddingModelName);
+var llmModel = ollama.AddModel(chatModelName);
 
 var cache = builder.AddRedis("redis");
 if (isDev)
@@ -75,10 +104,13 @@ var apiService = builder.AddProject<Projects.Api>("api")
     .WaitFor(keyVault)
     .WithReference(appConfig)
     .WaitFor(appConfig)
-    .WithReference(supportDb)
-    .WaitForCompletion(dbMigrator)
+    .WithReference(blobStorage)
+    .WithReference(embeddingModel)
+    .WithReference(llmModel)
     .WithReference(cache)
     .WaitFor(cache)
+    .WithReference(supportDb)
+    .WaitForCompletion(dbMigrator) 
     .WithEnvironment("DataProtectionOptions__KeyIdentifier",
         ReferenceExpression.Create($"{keyVault.GetEndpoint("https")}/keys/data-protection-key"))
     .WithEnvironment("DataProtectionOptions__LocalFallBack", "");

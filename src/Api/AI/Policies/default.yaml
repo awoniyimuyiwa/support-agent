@@ -1,0 +1,26 @@
+﻿version: "FIDES/1.0"
+metadata:
+  name: "ticket-resolution-governance"
+
+policies:
+  # Rule 1: Prevent Privileged Writes from Tainted / Untrusted Inputs
+  - id: "enforce-strict-ticket-modification-trust"
+    description: "Deny ticket updates if the data vector signature originated from untrusted user parameters"
+    target:
+      agentId: "did:mesh:customer-support-agent-001"
+      toolName: "UpdateTicketStatusAsync" 
+    condition:
+      # Ring 3 represents untrusted text payloads flagged by AgentGuard
+      expression: "request.args.input.execution_ring > 1" 
+    effect: "Deny"
+    reason: "Access Denied: State-mutation operations cannot consume untrusted input channels directly."
+
+  # Rule 2: Explicitly Allow Semantic Search Access
+  - id: "allow-untrusted-knowledge-retrieval"
+    description: "Allow the agent to search text datasets using arbitrary query prompts"
+    target:
+      agentId: "did:mesh:customer-support-agent-001"
+      toolName: "SearchKnowledgeBaseAsync" 
+    condition:
+      expression: "request.args.input.execution_ring <= 3"
+    effect: "Allow"

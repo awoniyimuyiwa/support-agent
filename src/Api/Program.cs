@@ -1,4 +1,10 @@
+using AgentGovernance;
+using AgentGovernance.Policy;
+using AgentGuard.Core.Builders;
+using AgentGuard.Core.ChatClient;
+using AgentGuard.Pii;
 using Api;
+using Api.AI;
 using Api.Attributes;
 using Api.BackgroundServices;
 using Api.Contracts.Extensions;
@@ -26,7 +32,9 @@ using Medallion.Threading.Postgres;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Caching.StackExchangeRedis;
+using OllamaSharp;
 using Polly;
 using Polly.Retry;
 using Polly.Timeout;
@@ -91,8 +99,15 @@ if (!string.IsNullOrWhiteSpace(appConfigConnectionString))
 
 // Changing the app name value will invalidate existing cache entries, rate limiting keys,
 // auth tickets and data protection keys.
-var appName = builder.Configuration.GetValue<string>("AppName")
-    ?? throw new InvalidOperationException("Setting 'AppName' is missing from configuration.");
+// Inside your Program.cs file
+string appName = !string.IsNullOrWhiteSpace(builder.Configuration.GetValue<string>("AppName"))
+    ? builder.Configuration.GetValue<string>("AppName")!
+    : throw new InvalidOperationException("AppHost Boot Error: Setting 'AppName' must be explicitly specified in configurations and cannot be empty or whitespace.");
+
+builder.Services.AddOptions<AiOptions>()
+    .Bind(builder.Configuration.GetSection(AiOptions.SectionName))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
 
 builder.Services.AddOptions<AuditLogOptions>()
     .Bind(builder.Configuration.GetSection(AuditLogOptions.SectionName))
@@ -200,7 +215,7 @@ var cacheVersion = builder.Configuration.GetValue<string>("CacheOptions:Version"
 var cachePrefix = $"{appName}:{cacheVersion}:";
 
 // Let Aspire initialize the core telemetry, metrics, and connection pools natively.
-builder.AddRedisClient("Redis");
+builder.AddRedisClient("redis");
 
 // Find Aspire's original registration descriptor in the collection list
 var aspireRedisDescriptor = builder.Services.FirstOrDefault(d => d.ServiceType == typeof(IConnectionMultiplexer));
@@ -211,13 +226,13 @@ if (aspireRedisDescriptor is not null)
 
     // re-register it as a KEYED service under a unique string name!
     // This safely isolates Aspire's original factory away from default lookups.
-    builder.Services.AddKeyedSingleton<IConnectionMultiplexer>("UnprefixedRedis",
+    builder.Services.AddKeyedSingleton("UnprefixedRedis",
         (sp, key) => (IConnectionMultiplexer)aspireRedisDescriptor.ImplementationFactory!.Invoke(sp));
 }
 
 // Register the default IConnectionMultiplexer that all third-party packages will pull.
 // Because it calls the KEYED service explicitly, there is zero risk of an infinite loop
-builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
+builder.Services.AddSingleton(sp =>
 {
     var underlyingRedis = sp.GetRequiredKeyedService<IConnectionMultiplexer>("UnprefixedRedis");
     return underlyingRedis.WithCustomKeyPrefix(cachePrefix);
@@ -236,9 +251,70 @@ builder.Services.AddOptions<RedisCacheOptions>()
 
 builder.Services.AddStackExchangeRedisCache(_ => { });
 
+// Let Aspire initialize the core telemetry, metrics, and connection pools natively.
+builder.AddAzureBlobServiceClient("blobs");
+
+builder.Services.AddSingleton(sp =>
+{
+    return new GovernanceKernel(new GovernanceOptions
+    {
+        // Points to the YAML file where enterprise guardrails live
+        PolicyPaths = ["AI/policies/default.yml"],
+
+        ConflictStrategy = ConflictResolutionStrategy.DenyOverrides,
+        EnableRings = true,
+        EnablePromptInjectionDetection = true,
+        EnableCircuitBreaker = true
+    });
+});
+
+// Let Aspire initialize the core telemetry, metrics, and connection pools natively.
+builder.AddOllamaApiClient("ollama");
+
+var aiOptions = builder.Configuration.GetSection(AiOptions.SectionName).Get<AiOptions>()
+    ?? throw new InvalidOperationException("Critical Configuration Section 'AiOptions' is missing.");
+
+builder.Services.AddEmbeddingGenerator(sp => {
+    var client = sp.GetRequiredService<OllamaApiClient>();
+    client.SelectedModel = aiOptions.EmbeddingModelName;
+    return client;
+});
+
+builder.Services.AddChatClient(sp => {
+    var coreClient = sp.GetRequiredService<OllamaApiClient>();
+    coreClient.SelectedModel = aiOptions.ChatModelName;
+   
+    IChatClient chatClient = coreClient;
+
+    chatClient = chatClient    
+    .AsBuilder()   
+    .UseLogging()   
+    .Use(inner => new CustomDelegatingChatClient(    
+        inner,    
+        sp.GetRequiredService<GovernanceKernel>()))    
+    .Build();
+
+    // This ensures AgentGuard acts as the outermost shield. It cleans incoming 
+    // prompts (PII & injection screening) BEFORE your middleware does access checks!
+    return chatClient
+    .UseAgentGuard(new GuardrailPolicyBuilder()    
+    .NormalizeInput()    
+    .BlockPromptInjection()    
+    .LimitInputTokens(aiOptions.MaxSafeInputTokens)
+    .LimitOutputTokens(aiOptions.MaxOutputTokens)
+    .RedactPii()    
+    .Build());
+});
+
+
+builder.Services.AddScoped<TicketResolutionTools>();
+
+builder.Services.AddTransient<SupportAgent>();
+
 builder.AddEntityFrameworkServices();
 
 builder.Services.AddApplicationServices();
+
 
 // Configure distributed lock provider here, SQL server, Postgresql or Redis. Zookeeper requires ZooKeeperNetEx library
 builder.Services.AddSingleton<IDistributedLockProvider>(
@@ -483,7 +559,7 @@ app.Use(async (context, next) =>
 {
     // Expose the W3C Trace ID in the response header to correlate client requests with server-side telemetry.
     var traceId = Activity.Current?.TraceId.ToString() ?? context.TraceIdentifier;
-    context.Response.Headers.Append(Api.Constants.TraceIdHeaderName, traceId);
+    context.Response.Headers.Append(Constants.TraceIdHeaderName, traceId);
     await next();
 });
 
