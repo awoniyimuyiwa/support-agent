@@ -238,6 +238,7 @@ static class Queries
             return query.Select(d => new InternalDocumentDto(
                 d.Id,
                 d.ExternalId,
+                d.DocumentCategory.ExternalId,
                 d.Name,
                 d.CreatedAt,
                 d.UpdatedAt,
@@ -251,6 +252,7 @@ static class Queries
         {
             return query.Select(d => new DocumentDto(
                 d.ExternalId,
+                d.DocumentCategory.ExternalId,
                 d.Name,
                 d.CreatedAt,
                 d.UpdatedAt,
@@ -291,12 +293,34 @@ static class Queries
     {
         public IQueryable<DocumentVersionDto> ToDto()
         {
-            return query.Select(d => new DocumentVersionDto(
-                d.ExternalId,
-                d.FileId,
-                d.FileType,
-                d.CreatedAt,
-                d.IsDeleted));
+            return query.Select(dv => new DocumentVersionDto(
+                dv.ExternalId,
+                dv.ContentHash,
+                dv.Document.ExternalId,
+                dv.FileId,
+                dv.FileType,
+                dv.CreatedAt,
+                dv.UpdatedAt,
+                dv.ConcurrencyStamp,
+                dv.IsDeleted));
+        }
+    }
+
+    extension(IQueryable<DocumentVersion> query)
+    {
+        public IQueryable<InternalDocumentVersionDto> ToInternalDto()
+        {
+            return query.Select(dv => new InternalDocumentVersionDto(
+                dv.Id,
+                dv.ExternalId,
+                dv.ContentHash,
+                dv.Document.ExternalId,
+                dv.FileId,
+                dv.FileType,
+                dv.CreatedAt,
+                dv.UpdatedAt,
+                dv.ConcurrencyStamp,
+                dv.IsDeleted));
         }
     }
 

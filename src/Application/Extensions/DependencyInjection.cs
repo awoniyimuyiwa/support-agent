@@ -16,6 +16,7 @@ public static class DependencyInjection
         public IServiceCollection AddApplicationServices()
         {
             services
+                .AddScoped<IDocumentService, DocumentService>()
                 .AddScoped<ITicketService, TicketService>()
                 .AddScoped<IBackgroundJobManager, BackgroundJobManager>()
                 .AddBackgroundJobHandlers(); // Calls the inner block method seamlessly

@@ -1,14 +1,18 @@
 ﻿using System.Collections;
 using System.ComponentModel.DataAnnotations;
+using System.Linq; // 🚀 Added missing LINQ engine extensions namespace
 
 namespace Api.Contracts.Attributes;
 
-[AttributeUsage(AttributeTargets.Property | AttributeTargets.Parameter)]
-public sealed class UniqueMaxAttribute(int maxLength = Constants.MaxLengthOfList) : ValidationAttribute
+[AttributeUsage(AttributeTargets.Property | AttributeTargets.Parameter, AllowMultiple = true)]
+public sealed class UniqueMaxAttribute(int maxLength = 100) : ValidationAttribute
 {
-    protected override ValidationResult? IsValid(
-        object? value, 
-        ValidationContext validationContext)
+    /// <summary>
+    /// Optional property name for targeting sub-fields
+    /// </summary>
+    public string? UniquePropertyName { get; set; }
+
+    protected override ValidationResult? IsValid(object? value, ValidationContext validationContext)
     {
         if (value is not IEnumerable enumerable)
             return ValidationResult.Success;
@@ -17,12 +21,10 @@ public sealed class UniqueMaxAttribute(int maxLength = Constants.MaxLengthOfList
         if (list.Count == 0)
             return ValidationResult.Success;
 
-        // Try to get type from the Property Info, fallback to the runtime type of the value
         var memberType = validationContext.ObjectType
             .GetProperty(validationContext.MemberName ?? string.Empty)?
             .PropertyType ?? value.GetType();
 
-        // Handle both Arrays (T[]) and Collections (List<T>, IReadOnlyCollection<T>)
         Type? elementType = null;
         if (memberType.IsArray)
         {
@@ -38,10 +40,46 @@ public sealed class UniqueMaxAttribute(int maxLength = Constants.MaxLengthOfList
             : maxLength;
 
         if (list.Count > effectiveMax)
+        {
             return new ValidationResult($"{validationContext.DisplayName} cannot exceed {effectiveMax} items.");
+        }
 
-        if (list.Distinct().Count() != list.Count)
-            return new ValidationResult($"{validationContext.DisplayName} must contain unique items.");
+        if (!string.IsNullOrWhiteSpace(UniquePropertyName))
+        {
+            // Target sub-property via reflection for complex object arrays
+            var propInfo = list.FirstOrDefault()?.GetType().GetProperty(UniquePropertyName);
+            if (propInfo == null)
+                return ValidationResult.Success;
+
+            var valuesToCompare = list
+                .Select(item => propInfo.GetValue(item, null))
+                .Where(val => val != null)
+                .ToList();
+
+            // Case-Insensitive evaluation check specifically tailored for String property keys
+            if (propInfo.PropertyType == typeof(string))
+            {
+                var stringValues = valuesToCompare.Cast<string>().ToList();
+                if (stringValues.Distinct(StringComparer.OrdinalIgnoreCase).Count() != stringValues.Count)
+                {
+                    return new ValidationResult($"{validationContext.DisplayName} must contain unique {UniquePropertyName} entries.");
+                }
+            }
+            else
+            {
+                // Fallback for standard primitives (Guid, int, long, etc.) inside object list
+                if (valuesToCompare.Distinct().Count() != valuesToCompare.Count)
+                {
+                    return new ValidationResult($"{validationContext.DisplayName} must contain unique {UniquePropertyName} entries.");
+                }
+            }
+        }
+        else
+        {
+            // Default primitive value equality if no property name is specified
+            if (list.Distinct().Count() != list.Count)
+                return new ValidationResult($"{validationContext.DisplayName} must contain unique items.");
+        }
 
         return ValidationResult.Success;
     }

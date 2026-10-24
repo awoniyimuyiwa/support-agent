@@ -24,10 +24,57 @@ abstract class BaseRepository<T>(ApplicationDbContext context) : IRepository<T> 
         return await query.FirstOrDefaultAsync(expression, cancellationToken);
     }
 
-    public virtual async Task<IReadOnlyCollection<T>> GetAll(CancellationToken cancellationToken = default)
-        => await _context.Set<T>()
-        .AsNoTracking()
-        .ToListAsync(cancellationToken);
+    public virtual async Task<IReadOnlyCollection<T>> GetAll(
+        string[]? includes = null,
+        CancellationToken cancellationToken = default)
+    {
+        IQueryable<T> query = _context.Set<T>();
+        if (includes != null)
+            foreach (var path in includes) query = query.Include(path);
+
+        return await query
+            .AsNoTracking()
+            .ToListAsync(cancellationToken);
+    }
+
+    public virtual async Task<IReadOnlyDictionary<Guid, T>> GetByIds(
+        IReadOnlyCollection<Guid> ids,
+        string[]? includes = null,
+        bool ignoreQueryFilters = false,
+        CancellationToken cancellationToken = default)
+    {
+        IQueryable<T> query = _context.Set<T>();
+        if (includes != null)
+        {
+            foreach (var path in includes) query = query.Include(path);
+        }
+
+        if (ignoreQueryFilters)
+        {
+            query = query.IgnoreQueryFilters();
+        }
+
+        return await query
+            .Where(x => ids.Contains(x.ExternalId))
+            .ToDictionaryAsync(x => x.ExternalId, cancellationToken);
+    }
+
+    public virtual async Task<IReadOnlyDictionary<Guid, long>> MapIds(
+        IReadOnlyCollection<Guid> ids,
+        bool ignoreQueryFilters = false,
+        CancellationToken cancellationToken = default)
+    {
+        IQueryable<T> query = _context.Set<T>();
+      
+        if (ignoreQueryFilters)
+        {
+            query = query.IgnoreQueryFilters();
+        }
+
+        return await query
+            .Where(x => ids.Contains(x.ExternalId))
+            .ToDictionaryAsync(x => x.ExternalId, x => x.Id, cancellationToken);
+    }
 
     public virtual void Update(T entity) 
     {

@@ -72,7 +72,7 @@ public class BackgroundJobsController(
 
         if (!string.IsNullOrWhiteSpace(next) && cursor is null)
         {
-            ModelState.AddModelError(nameof(next), Constants.InvalidErrorMessage);
+            ModelState.AddModelError(nameof(next), Contracts.Constants.InvalidErrorMessage);
             return ValidationProblem();
         }
 

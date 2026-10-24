@@ -20,16 +20,17 @@ class DocumentRepository(
             .FirstOrDefaultAsync(cancellationToken);
     }
 
-    public async Task<IReadOnlyCollection<long>> GetIds(
-        Expression<Func<Document, bool>> expression,
-        int batchSize,
+    public async Task<IReadOnlyDictionary<string, DocumentDto>> GetByNames(
+        IReadOnlyCollection<string> names,
         CancellationToken cancellationToken = default)
     {
-        return await _context.Set<Document>()
-            .Where(expression)
-            .Select(d => d.Id)
-            .Take(batchSize)
-            .ToListAsync(cancellationToken);
+        IQueryable<Document> query = _context.Set<Document>();
+
+        return await query
+            .IgnoreQueryFilters()
+            .Where(x => names.Contains(x.Name))
+            .ToDto()
+            .ToDictionaryAsync(x => x.Name, cancellationToken);
     }
 
     public Task<PaginatedList<DocumentDto>> Paginate(
@@ -62,26 +63,30 @@ class DocumentRepository(
              cancellationToken);
     
         var results = await _context.DocumentChunks
-            .Where(dc => dc.Vector != null 
-                && dc.DocumentVersion.CreatedAt == _context.DocumentVersions
-                .Where(dv => dv.DocumentId == dc.DocumentVersion.DocumentId).Max(dv => dv.CreatedAt))
-           .OrderBy(dc => dc.Vector!.CosineDistance(prompt))
-           .Take(maxResults)
+           .Where(dc => dc.Vector != null
+                        // The version & parent document IsDeleted checks are injected automatically by EF Core
+                        && dc.DocumentVersion.CreatedAt == _context.DocumentVersions
+                        .Where(dv => dv.DocumentId == dc.DocumentVersion.DocumentId)
+                        .Max(dv => dv.CreatedAt))
            .Select(dc => new
-            {  
-               Data = dc,
-               Distance = dc.Vector!.CosineDistance(prompt)
-            })
-            .ToListAsync(cancellationToken);
+            {
+               Distance = dc.Vector!.CosineDistance(prompt),
+               dc.DocumentVersion.DocumentId,
+               dc.DocumentVersionId,
+               dc.Content,
+               dc.Index
+           }).OrderBy(dc => dc.Distance)
+           .Take(maxResults)
+           .ToListAsync(cancellationToken);
 
         return [.. results
             .Where(r => r.Distance < 0.6)
-            .Select(dc => new DocumentChunkDto(
-                dc.Distance,
-                dc.Data.DocumentVersion.DocumentId,
-                dc.Data.Content,
-                dc.Data.DocumentVersion.Document.Name,
-                dc.Data.Index))];
+            .Select(r => new DocumentChunkDto(
+                r.Distance,
+                r.DocumentId,
+                r.DocumentVersionId,
+                r.Content,
+                r.Index))];
     }
 
     public Task<CursorList<DocumentDto>> Stream(
@@ -121,6 +126,7 @@ class DocumentRepository(
     private IQueryable<Document> ApplyFilter(DocumentFilterDto filter)
     {
         return _context.Set<Document>()
+            .WhereIf(filter.Categories != null && filter.Categories.Length > 0, d => filter.Categories!.Contains(d.DocumentCategory.ExternalId))
             .WhereIf(filter.CreatedFrom != null, d => d.CreatedAt >= filter!.CreatedFrom)
             .WhereIf(filter.CreatedTo != null, d => d.CreatedAt <= filter!.CreatedTo)           
             .WhereIf(filter.UpdatedFrom != null, d => d.UpdatedAt >= filter!.UpdatedFrom)

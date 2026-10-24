@@ -1,5 +1,4 @@
 ﻿using Domain.Shared;
-using System.Collections.Immutable;
 using System.Linq.Expressions;
 
 namespace Domain;
@@ -8,10 +7,6 @@ public interface ITicketRepository : IRepository<Ticket>
 {
     Task<TicketDto?> Get(
         Expression<Func<Ticket, bool>> expression,
-        CancellationToken cancellationToken = default);
-
-    Task<ImmutableDictionary<Guid, Ticket>> GetByIds(
-        ImmutableList<Guid> ids,
         CancellationToken cancellationToken = default);
 
     Task<PaginatedList<TicketDto>> Paginate(
@@ -32,6 +27,7 @@ public interface ITicketRepository : IRepository<Ticket>
     public Task<CursorList<TicketDto>> StreamDeltas(
         Cursor? cursor,
         DateTimeOffset until,
+        long? userId = null,
         int pageSize = Constants.MaxPageSize,
         CancellationToken cancellationToken = default);
 }

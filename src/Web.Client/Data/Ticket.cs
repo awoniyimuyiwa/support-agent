@@ -9,10 +9,6 @@ public class Ticket : ISyncableEntity
     public string Description { get; set; } = string.Empty;
 
     public string Title { get; set; } = string.Empty;
-   
-    public TicketPriority Priority { get; set; }
-
-    public TicketStatus Status { get; set; }
 
     public DateTime CreatedAt { get; set; }
 
@@ -21,4 +17,14 @@ public class Ticket : ISyncableEntity
     public string? ConcurrencyStamp { get; set; }
 
     public SyncStatus SyncStatus { get; set; } = SyncStatus.Synced;
+}
+
+/// <summary>
+/// For admins
+/// </summary>
+public class FullTicket : Ticket
+{
+    public TicketPriority Priority { get; set; }
+
+    public TicketStatus Status { get; set; }
 }

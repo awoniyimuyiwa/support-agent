@@ -41,4 +41,5 @@ public record TicketFilterDto(
     TicketStatus[]? Statuses = null,
     DateTimeOffset? UpdatedFrom = null,
     DateTimeOffset? UpdatedTo = null,
-    string? SearchTerm = null);
+    string? SearchTerm = null,
+    Guid? UserId = null);

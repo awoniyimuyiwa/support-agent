@@ -78,7 +78,10 @@ class CustomSaveChangesInterceptor(
                     {
                         auditedEntity.CreatedAt = utcNow;
                     }
-                    auditedEntity.UpdatedAt = utcNow;
+                    if (auditedEntity.UpdatedAt == default)
+                    {
+                        auditedEntity.UpdatedAt = utcNow;
+                    }
                 }
                 else if (entry.State == EntityState.Modified && hasMeaningfulChange)
                 {

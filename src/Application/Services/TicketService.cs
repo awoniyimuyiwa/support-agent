@@ -2,7 +2,6 @@
 using Domain;
 using Domain.Shared;
 using Microsoft.Extensions.DependencyInjection;
-using System.Collections.Immutable;
 using System.Text.Json;
 
 namespace Application.Services;
@@ -15,27 +14,57 @@ class TicketService(
     [FromKeyedServices(Constants.AuditLogJsonSerializationOptionsName)] JsonSerializerOptions auditJsonSerializerOptions)
     : BaseService(auditLogManager, timeProvider, auditJsonSerializerOptions), ITicketService
 {
-    public async Task<ImmutableList<TicketDto>> Sync(
+    public async Task<IReadOnlyCollection<TicketDto>> Sync(
         TicketSyncDto input,
+        long userId,
+        bool isAdmin,
         CancellationToken cancellationToken = default)
     {
+        if (input.Items.Count == 0) { return []; }
+
         var conflicts = new List<TicketDto>();
 
-        var ids = input.Tickets
+        var ids = input.Items
             .Select(x => x.Id)
-            .ToImmutableList();
+            .ToList();
 
-        var tickets = await ticketRepository.GetByIds(
+        var idTicketMap = await ticketRepository.GetByIds(
             ids,
+            includes: [],
+            ignoreQueryFilters: true,
             cancellationToken);
 
-        foreach (var ticketDto in input.Tickets)
+        foreach (var ticketDto in input.Items)
         {
-            if (tickets.TryGetValue(ticketDto.Id, out var ticket))
+            if (idTicketMap.TryGetValue(ticketDto.Id, out var ticket))
             {
+                // Non-admins cannot modify tickets that don't belong them
+                if (!isAdmin && ticket.UserId != userId)
+                {
+                    // Using continue here is fine for security since the ticket doesn't belong to them
+                    continue;
+                }
+
+                // Non-admins cannot modify a ticket that is no longer Open
+                if (!isAdmin && ticket.Status != TicketStatus.Open)
+                {
+                    // This forces the client to overwrite the local draft
+                    conflicts.Add(new TicketDto(
+                        Id: ticket.ExternalId,
+                        Description: ticket.Description,
+                        Priority: ticket.Priority,
+                        Status: ticket.Status,
+                        Title: ticket.Title,
+                        CreatedAt: ticket.CreatedAt,
+                        UpdatedAt: ticket.UpdatedAt,
+                        ConcurrencyStamp: ticket.ConcurrencyStamp,
+                        IsDeleted: ticket.IsDeleted));
+                    continue;
+                }
+
                 // True client-vs-server collision matching
                 if (ticket.ConcurrencyStamp != ticketDto.ConcurrencyStamp
-                    && input.Behavior != SyncBehavior.ForceClientWins)
+                    && input.Behavior != SyncBehavior.ClientWins)
                 {
                     conflicts.Add(new TicketDto(
                         ticket.ExternalId,
@@ -50,30 +79,32 @@ class TicketService(
                     continue;
                 }
 
-                ticket.Title = ticketDto.Title;
                 ticket.Description = ticketDto.Description;
-                ticket.Priority = ticketDto.Priority;
-                ticket.Status = ticketDto.Status;
+                ticket.Title = ticketDto.Title;
+                ticket.IsDeleted = ticketDto.IsDeleted;
 
-                if (input.Behavior == SyncBehavior.ForceClientWins)
+                // Only admins can change priority and status
+                if (isAdmin)
                 {
-                    ticket.IsDeleted = false;
+                    ticket.Priority = ticketDto.Priority;
+                    ticket.Status = ticketDto.Status;
                 }
 
-                // No update to concurrency stamp from db
                 ticketRepository.Update(ticket);
             }
             else
             {
                 // Row generated completely offline by field worker
-                var newTicket = new Ticket
+                // Priority and status already sanitized to default values for non admins at the API via model mapping extensions
+                var newTicket = new Ticket(
+                    ticketDto.Id,
+                    ticketDto.Description,
+                    ticketDto.Priority,
+                    ticketDto.Status,
+                    ticketDto.Title,
+                    userId)
                 {
-                    ExternalId = ticketDto.Id,
-                    Title = ticketDto.Title,
-                    Description = ticketDto.Description,
-                    Priority = ticketDto.Priority,
-                    Status = ticketDto.Status
-                    //ClientCreatedAt = ticketDto.CreatedAt // Save the offline time here for UI history logs to display audit or sorting trails to your users like: "Drafted offline on Oct 7 at 9:00 PM, Synchronized to cloud at 9:33 PM."[1.1]
+                    IsDeleted = ticketDto.IsDeleted
                 };
 
                 ticketRepository.Add(newTicket);

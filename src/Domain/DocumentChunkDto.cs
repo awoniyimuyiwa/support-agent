@@ -3,6 +3,6 @@
 public record DocumentChunkDto(
     double Distance,
     long DocumentId,
+    long DocumentVersionId,
     string Content,
-    string DocumentName,
     uint Index);

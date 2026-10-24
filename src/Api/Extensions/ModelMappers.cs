@@ -3,7 +3,6 @@ using Api.Contracts.Models.V1.BackgroundJobs;
 using Application.Contracts;
 using Domain;
 using Domain.BackgroundJobs;
-using System.Collections.Immutable;
 
 namespace Api.Extensions;
 
@@ -22,6 +21,76 @@ public static class ModelMappers
                To: model.To,
                Url: model.Url,
                UserId: model.UserId);
+    }
+
+    extension(DocumentCategoryModel model)
+    {
+        public DocumentCategoryDto Dto =>
+            new(
+                model.Id,
+                model.Description,
+                model.Name,
+                model.CreatedAt,
+                model.UpdatedAt,
+                model.ConcurrencyStamp);
+    }
+
+    extension(DocumentCategorySyncModel model)
+    {
+        public DocumentCategorySyncDto Dto =>
+            new(
+                [.. model.Items.Select(dc => dc.Dto)],
+                model.Behavior);
+    }
+
+    extension (DocumentModel model)
+    {
+        public DocumentSyncItemDto ToSyncItemDto(IReadOnlyDictionary<Guid, long> categoryIdMap) =>
+            new(
+                model.Id,
+                new EntityDto()
+                {
+                    Id = categoryIdMap[model.CategoryId],
+                    ExternalId = model.CategoryId
+                },
+                model.Name,
+                model.CreatedAt,
+                model.UpdatedAt,
+                model.ConcurrencyStamp);
+    }
+
+    extension(DocumentSyncModel model)
+    {
+        public DocumentSyncDto ToDto(IReadOnlyDictionary<Guid, long> categoryIdMap) =>
+            new(
+                [.. model.Items.Select(d => d.ToSyncItemDto(categoryIdMap))],
+                model.Behavior);
+    }
+
+    extension(DocumentVersionModel model)
+    {
+        public DocumentVersionSyncItemDto ToSyncItemDto(IReadOnlyDictionary<Guid, long> documentIdMap) =>
+            new(
+                model.Id,
+                model.ContentHash,
+                new EntityDto()
+                {
+                    Id = documentIdMap[model.DocumentId],
+                    ExternalId = model.DocumentId
+                },
+                model.FileId,
+                model.FileType,
+                model.CreatedAt,
+                model.UpdatedAt,
+                model.ConcurrencyStamp);
+    }
+
+    extension(DocumentVersionSyncModel model)
+    {
+        public DocumentVersionSyncDto ToDto(IReadOnlyDictionary<Guid, long> docuemntIdMap) =>
+            new(
+                [.. model.Items.Select(dv => dv.ToSyncItemDto(docuemntIdMap))],
+                model.Behavior);
     }
 
     extension(GetBackgroundJobFilterModel model)
@@ -56,15 +125,21 @@ public static class ModelMappers
                UpdatedTo: model.UpdatedTo);
     }
 
-    extension (TicketSyncModel model)
-    {
-        public TicketSyncDto Dto =>
-            new(
-                [.. model.Items.Select(t => t.Dto)],
-                model.Behavior);
-    } 
-
     extension (TicketModel model)
+    {
+        public TicketDto Dto =>
+            new(
+                model.Id,
+                model.Description,
+                Domain.Shared.TicketPriority.Low,
+                Domain.Shared.TicketStatus.Open,
+                model.Title,
+                model.CreatedAt,
+                model.UpdatedAt,
+                model.ConcurrencyStamp);
+    }
+
+    extension(FullTicketModel model)
     {
         public TicketDto Dto =>
             new(
@@ -76,6 +151,22 @@ public static class ModelMappers
                 model.CreatedAt,
                 model.UpdatedAt,
                 model.ConcurrencyStamp);
+    }
+
+    extension(TicketSyncModel model)
+    {
+        public TicketSyncDto Dto =>
+            new(
+                [.. model.Items.Select(t => t.Dto)],
+                model.Behavior);
+    }
+
+    extension(FullTicketSyncModel model)
+    {
+        public TicketSyncDto Dto =>
+            new(
+                [.. model.Items.Select(t => t.Dto)],
+                model.Behavior);
     }
 
     extension(UserFilterModel model)

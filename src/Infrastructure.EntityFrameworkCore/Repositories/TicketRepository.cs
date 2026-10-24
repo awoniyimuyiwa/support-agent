@@ -32,20 +32,6 @@ class TicketRepository(
             .ToListAsync(cancellationToken);
     }
 
-    public async Task<ImmutableDictionary<Guid, Ticket>> GetByIds(
-        ImmutableList<Guid> ids, 
-        CancellationToken cancellationToken = default)
-    {     
-        var idList = ids.ToList();
-
-        var dictionary = await _context.Tickets
-            .IgnoreQueryFilters() // Bypass backend global soft-delete query filters
-            .Where(x => idList.Contains(x.ExternalId))
-            .ToDictionaryAsync(x => x.ExternalId, cancellationToken);
-
-        return dictionary.ToImmutableDictionary();
-    }
-
     public Task<PaginatedList<TicketDto>> Paginate(
         TicketFilterDto? filter,
         int pageNumber = Constants.MinPageNumber,
@@ -84,10 +70,12 @@ class TicketRepository(
     public Task<CursorList<TicketDto>> StreamDeltas(
         Cursor? cursor,
         DateTimeOffset until,
+        long? userId = null,
         int pageSize = Constants.MaxPageSize,
         CancellationToken cancellationToken = default) =>
 
         _context.Set<Ticket>()
+        .WhereIf(userId != null, t => t.UserId == userId)
         .ToDeltaCursorList<
             Ticket,
             InternalTicketDto,

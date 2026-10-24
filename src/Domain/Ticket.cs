@@ -13,18 +13,37 @@ public class Ticket : AuditedEntity, IHasConcurrencyStamp
     public TicketStatus Status { get; set; }
 
     public string? ConcurrencyStamp { get; set; }
-   
+
+    public long UserId { get; protected set; }
+
+    public ApplicationUser User
+    {
+        get;
+        protected set
+        {
+            field = value;
+            if (value != null)
+            {
+                UserId = value.Id;
+            }
+        }
+    } = null!;
+
     public Ticket() {}
 
     public Ticket(
+        Guid externalId,
         string description,
-        string title, 
         TicketPriority priority,
-        TicketStatus status)
+        TicketStatus status,
+        string title,
+        long userId)
     {
+        ExternalId = externalId;
         Description = description;
-        Title = title;
         Priority = priority;
         Status = status;
+        Title = title;
+        UserId = userId;
     }
 }

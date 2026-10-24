@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
+using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Pgvector;
 using System.Linq.Expressions;
@@ -42,10 +43,14 @@ class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : Ide
   
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        base.OnModelCreating(modelBuilder);
-
         // Enable the pgvector database engine extension natively in PostgreSQL
         modelBuilder.HasPostgresExtension("vector");
+
+        // Mandated to recognize and compile 'citext' data types natively, needed to make name fields case insensitive
+        // _context.Documents.FirstOrDefault(d => d.Name == inputName) will automatically generate case -insensitive SQL matching, eliminating the need to write .ToLower() everywhere.
+        modelBuilder.HasPostgresExtension("citext");
+
+        base.OnModelCreating(modelBuilder);
 
         modelBuilder.Entity<ApplicationUser>(applicationUser =>
         {
@@ -53,22 +58,7 @@ class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : Ide
             applicationUser.Property(au => au.LastName).HasMaxLength(Constants.StringMaxLength);
             applicationUser.Property(au => au.ConcurrencyStamp).IsConcurrencyToken().HasMaxLength(Constants.StringMaxLength);
             applicationUser.Property(au => au.Id).ValueGeneratedOnAdd();
-            applicationUser.HasIndex(au => au.ExternalId).IsUnique();
-
-            // Explicitly define relationship as optional 
-            // to prevent INNER JOIN truncation caused by the global query filter.            
-            // Marking this relationship as optional (.IsRequired(false)) forces EF Core 
-            // to generate a LEFT JOIN instead of an INNER JOIN. This prevents global 
-            // query filters on ApplicationUser from silently truncating AuditLog rows.
-            //
-            // NOTE ON PRODUCTION NULL DATA: 
-            // The underlying foreign key constraint remains fully intact in PostgreSQL. 
-            // As long as the application logic ensures a valid UserId is provided on 
-            // every save, no actual NULL values will be written to the database.
-            applicationUser.HasMany<AuditLog>()
-            .WithOne(al => al.User)
-            .HasForeignKey(al => al.UserId)
-            .IsRequired(false);          
+            applicationUser.HasIndex(au => au.ExternalId).IsUnique();         
         });
 
         modelBuilder.Entity<ApplicationRole>(applicationRole =>
@@ -92,6 +82,11 @@ class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : Ide
             auditLog.Property(al => al.IpAddress).HasMaxLength(45);
             auditLog.Property(al => al.RequestId).HasMaxLength(Constants.StringMaxLength);
             auditLog.Property(al => al.Url).HasMaxLength(Constants.StringMaxLength);
+
+            auditLog.HasOne(al => al.User)
+            .WithMany()
+            .HasForeignKey(al => al.UserId)
+            .IsRequired(false);
 
             auditLog.HasMany(al => al.AuditLogActions)
             .WithOne()
@@ -132,11 +127,16 @@ class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : Ide
         {
             document.Ignore(d => d.Versions);
 
-            document.Property(d => d.Name).HasMaxLength(Constants.StringMaxLength).IsRequired();
+            // Enforces that name must be globally unique (case insensitive).
+            // Partial index filtering (e.g., ignoring soft-deleted rows) is intentionally omitted. 
+            // This prevents name duplication between active and soft-deleted records.
+            document.Property(d => d.Name)
+            .HasColumnType("citext") //  Use the case-insensitive text data type
+            .HasMaxLength(Constants.StringMaxLength)
+            .IsRequired();
 
             document.HasIndex(d => d.Name)
-            .IsUnique()
-            .HasFilter("\"IsDeleted\" = false");
+            .IsUnique();
 
             // Crucial for Multi-Agent routing: Speeds up filtering documents by category 
             // and soft-delete status simultaneously before traversing child vector trees.
@@ -147,13 +147,15 @@ class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : Ide
 
         modelBuilder.Entity<DocumentCategory>(documentCategory =>
         {
-            documentCategory.Property(dc => dc.Name).HasMaxLength(Constants.StringMaxLength).IsRequired();
-
             documentCategory.Property(dc => dc.Description).HasMaxLength(Constants.StringMaxLength);
 
+            documentCategory.Property(dc => dc.Name)
+           .HasColumnType("citext")
+           .HasMaxLength(Constants.StringMaxLength)
+           .IsRequired();
+
             documentCategory.HasIndex(dc => dc.Name)
-            .IsUnique()
-            .HasFilter("\"IsDeleted\" = false");
+            .IsUnique();
         });
 
         modelBuilder.Entity<DocumentChunk>(documentChunk =>
@@ -189,13 +191,14 @@ class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : Ide
             // sacrificing a tiny bit of background worker indexing time for ultimate runtime search accuracy.
             .HasStorageParameter("m", 24) // Max bidirectional link connections per graph node
             .HasStorageParameter("ef_construction", 100); // Size of the dynamic candidate list evaluated during index creation
-
-            // Explicitly define relationship as optional 
-            // to prevent INNER JOIN truncation caused by the global query filter.
+         
             documentChunk.HasOne(dc => dc.DocumentVersion)      
             .WithMany("DocumentChunks")                     
             .HasForeignKey(dc => dc.DocumentVersionId)
-            .IsRequired(false);
+            .IsRequired();
+
+            documentChunk.HasIndex(dc => new { dc.DocumentVersionId, dc.Index })
+            .IsUnique();
         });
 
         modelBuilder.Entity<DocumentVersion>(documentVersion =>
@@ -206,17 +209,34 @@ class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : Ide
             documentVersion.Property(dv => dv.ContentHash)
             .HasColumnType("char(64)") // Forces PostgreSQL to use fixed-length char optimization
             .IsFixedLength()
-            .IsRequired();
+            .IsRequired()
+            .Metadata.SetAfterSaveBehavior(PropertySaveBehavior.Throw);
+
+            documentVersion.Property(dv => dv.CreatedAt)
+            .Metadata.SetAfterSaveBehavior(PropertySaveBehavior.Throw);
+
+            documentVersion.Property(dv => dv.DocumentId)
+           .Metadata.SetAfterSaveBehavior(PropertySaveBehavior.Throw);
 
             documentVersion.Property(dv => dv.FileType)
             .HasMaxLength(Constants.StringMaxLength)
-            .IsRequired();
+            .IsRequired()
+            .Metadata.SetAfterSaveBehavior(PropertySaveBehavior.Throw);
 
-            documentVersion.
-            HasIndex(dv => dv.FileId)
+            documentVersion.Property(dv => dv.FileId)
+             .Metadata.SetAfterSaveBehavior(PropertySaveBehavior.Throw);
+
+            documentVersion.HasIndex(dv => dv.FileId)
             .IsUnique();
 
-            documentVersion.HasIndex(dv => new { dv.DocumentId, dv.CreatedAt });
+            // Optimizes the subquery computing the latest active version via Max(CreatedAt).
+            // Not unique to avoid collision when multiple versions are synced at the exact same time.
+            // Sorted descending to give the database instant O(1) access to the maximum timestamp leaf.
+            documentVersion.HasIndex(dv => new { dv.DocumentId, dv.CreatedAt })    
+            .IsDescending(false, true); // (DocumentId ASC, CreatedAt DESC)
+
+            documentVersion.HasIndex(dv => new { dv.DocumentId, dv.ContentHash })
+            .IsUnique();
         });
 
         modelBuilder.Entity<EntityChange>(entityChange =>
@@ -233,10 +253,11 @@ class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : Ide
             ticket.Property(t => t.Title).HasMaxLength(Constants.StringMaxLength).IsRequired();
             ticket.Property(t => t.Description).HasMaxLength(Constants.MaxExceptionLength).IsRequired();
 
-            ticket
-            .HasIndex(t => new { t.UpdatedAt, t.Id });
+            ticket.HasOne(t => t.User)
+            .WithMany()
+            .HasForeignKey(t => t.UserId)
+            .IsRequired();
         });
-
 
         // Find all entity types that are a subclass of Entity
         var entityTypes = modelBuilder.Model.GetEntityTypes()
@@ -304,16 +325,32 @@ class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : Ide
             // Dynamically construct the Expression Tree: e => !e.IsDeleted
             var parameter = Expression.Parameter(entityType.ClrType, "e");
 
-            // Access the 'IsDeleted' property on the parameter: e.IsDeleted
             var propertyAccess = Expression.Property(parameter, nameof(ISoftDeleted.IsDeleted));
 
             // Negate the value: !e.IsDeleted
-            var filterExpression = Expression.Not(propertyAccess);
+            Expression filterExpression = Expression.Not(propertyAccess);
 
-            // Compile into a Lambda expression: Lambda<Func<TEntity, bool>>
+            if (entityType.ClrType == typeof(DocumentVersion))
+            {
+                var documentNavigation = Expression.Property(parameter, nameof(DocumentVersion.Document));
+                var parentIsDeletedAccess = Expression.Property(documentNavigation, nameof(ISoftDeleted.IsDeleted));
+                var parentNotDeleted = Expression.Not(parentIsDeletedAccess);
+
+                filterExpression = Expression.AndAlso(filterExpression, parentNotDeleted);
+
+                // Register the filter for DocumentChunk
+                var chunkParam = Expression.Parameter(typeof(DocumentChunk), "dc");
+                var chunkVersionNav = Expression.Property(chunkParam, nameof(DocumentChunk.DocumentVersion));
+                var chunkDocNav = Expression.Property(chunkVersionNav, nameof(DocumentVersion.Document));
+                var versionDeletedCheck = Expression.Not(Expression.Property(chunkVersionNav, nameof(ISoftDeleted.IsDeleted)));
+                var docDeletedCheck = Expression.Not(Expression.Property(chunkDocNav, nameof(ISoftDeleted.IsDeleted)));
+                var chunkFilterExpr = Expression.AndAlso(versionDeletedCheck, docDeletedCheck);
+                var chunkLambda = Expression.Lambda(chunkFilterExpr, chunkParam);
+                modelBuilder.Entity<DocumentChunk>().HasQueryFilter(chunkLambda);
+            }
+
             var lambda = Expression.Lambda(filterExpression, parameter);
 
-            // Apply the global query filter dynamically to the entity configuration
             modelBuilder.Entity(entityType.ClrType)
                 .HasQueryFilter(lambda);
         }

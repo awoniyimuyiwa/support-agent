@@ -18,9 +18,10 @@ namespace Infrastructure.EntityFrameworkCore.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.12")
+                .HasAnnotation("ProductVersion", "10.0.13")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
+            NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "citext");
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "vector");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
@@ -408,7 +409,7 @@ namespace Infrastructure.EntityFrameworkCore.Migrations
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(255)
-                        .HasColumnType("character varying(255)");
+                        .HasColumnType("citext");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -423,8 +424,7 @@ namespace Infrastructure.EntityFrameworkCore.Migrations
                         .IsUnique();
 
                     b.HasIndex("Name")
-                        .IsUnique()
-                        .HasFilter("\"IsDeleted\" = false");
+                        .IsUnique();
 
                     b.HasIndex("CreatedAt", "Id")
                         .HasDatabaseName("IX_Documents_CursorPagination");
@@ -466,7 +466,7 @@ namespace Infrastructure.EntityFrameworkCore.Migrations
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(255)
-                        .HasColumnType("character varying(255)");
+                        .HasColumnType("citext");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -477,8 +477,7 @@ namespace Infrastructure.EntityFrameworkCore.Migrations
                         .IsUnique();
 
                     b.HasIndex("Name")
-                        .IsUnique()
-                        .HasFilter("\"IsDeleted\" = false");
+                        .IsUnique();
 
                     b.HasIndex("CreatedAt", "Id")
                         .HasDatabaseName("IX_DocumentCategories_CursorPagination");
@@ -513,14 +512,15 @@ namespace Infrastructure.EntityFrameworkCore.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("DocumentVersionId");
-
                     b.HasIndex("Vector")
                         .HasAnnotation("Npgsql:StorageParameter:ef_construction", 100)
                         .HasAnnotation("Npgsql:StorageParameter:m", 24);
 
                     NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("Vector"), "hnsw");
                     NpgsqlIndexBuilderExtensions.HasOperators(b.HasIndex("Vector"), new[] { "halfvec_cosine_ops" });
+
+                    b.HasIndex("DocumentVersionId", "Index")
+                        .IsUnique();
 
                     b.ToTable("DocumentChunks");
                 });
@@ -532,6 +532,11 @@ namespace Infrastructure.EntityFrameworkCore.Migrations
                         .HasColumnType("bigint");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("ConcurrencyStamp")
+                        .IsConcurrencyToken()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
 
                     b.Property<string>("ContentHash")
                         .IsRequired()
@@ -560,6 +565,9 @@ namespace Infrastructure.EntityFrameworkCore.Migrations
                         .HasColumnType("boolean")
                         .HasDefaultValue(false);
 
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.HasKey("Id");
 
                     b.HasIndex("ExternalId")
@@ -571,7 +579,14 @@ namespace Infrastructure.EntityFrameworkCore.Migrations
                     b.HasIndex("CreatedAt", "Id")
                         .HasDatabaseName("IX_DocumentVersions_CursorPagination");
 
-                    b.HasIndex("DocumentId", "CreatedAt");
+                    b.HasIndex("DocumentId", "ContentHash")
+                        .IsUnique();
+
+                    b.HasIndex("DocumentId", "CreatedAt")
+                        .IsDescending(false, true);
+
+                    b.HasIndex("UpdatedAt", "Id")
+                        .HasDatabaseName("IX_DocumentVersions_DeltaCursorPagination");
 
                     b.ToTable("DocumentVersions");
                 });
@@ -654,10 +669,15 @@ namespace Infrastructure.EntityFrameworkCore.Migrations
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<long>("UserId")
+                        .HasColumnType("bigint");
+
                     b.HasKey("Id");
 
                     b.HasIndex("ExternalId")
                         .IsUnique();
+
+                    b.HasIndex("UserId");
 
                     b.HasIndex("CreatedAt", "Id")
                         .HasDatabaseName("IX_Tickets_CursorPagination");
@@ -823,7 +843,9 @@ namespace Infrastructure.EntityFrameworkCore.Migrations
                 {
                     b.HasOne("Domain.DocumentVersion", "DocumentVersion")
                         .WithMany("DocumentChunks")
-                        .HasForeignKey("DocumentVersionId");
+                        .HasForeignKey("DocumentVersionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
                     b.Navigation("DocumentVersion");
                 });
@@ -846,6 +868,17 @@ namespace Infrastructure.EntityFrameworkCore.Migrations
                         .HasForeignKey("AuditLogId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Domain.Ticket", b =>
+                {
+                    b.HasOne("Domain.ApplicationUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<long>", b =>

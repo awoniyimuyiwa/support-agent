@@ -20,30 +20,17 @@ class DocumentCategoryRepository(
             .FirstOrDefaultAsync(cancellationToken);
     }
 
-    public async Task<IReadOnlyCollection<long>> GetIds(
-        Expression<Func<DocumentCategory, bool>> expression,
-        int batchSize,
+    public async Task<IReadOnlyDictionary<string, DocumentCategoryDto>> GetByNames(
+        IReadOnlyCollection<string> names,
         CancellationToken cancellationToken = default)
     {
-        return await _context.Set<DocumentCategory>()
-            .Where(expression)
-            .Select(t => t.Id)
-            .Take(batchSize)
-            .ToListAsync(cancellationToken);
-    }
+        IQueryable<DocumentCategory> query = _context.Set<DocumentCategory>();
 
-    public async Task<ImmutableDictionary<Guid, DocumentCategory>> GetByIds(
-        ImmutableList<Guid> ids, 
-        CancellationToken cancellationToken = default)
-    {     
-        var idList = ids.ToList();
-
-        var dictionary = await _context.Set<DocumentCategory>()
+        return await query
             .IgnoreQueryFilters()
-            .Where(x => idList.Contains(x.ExternalId))
-            .ToDictionaryAsync(x => x.ExternalId, cancellationToken);
-
-        return dictionary.ToImmutableDictionary();
+            .Where(x => names.Contains(x.Name))
+            .ToDto()
+            .ToDictionaryAsync(x => x.Name, cancellationToken);
     }
 
     public Task<PaginatedList<DocumentCategoryDto>> Paginate(

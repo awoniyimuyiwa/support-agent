@@ -9,6 +9,10 @@ public interface IDocumentCategoryRepository : IRepository<DocumentCategory>
       Expression<Func<DocumentCategory, bool>> expression,
       CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyDictionary<string, DocumentCategoryDto>> GetByNames(
+        IReadOnlyCollection<string> names,
+        CancellationToken cancellationToken = default);
+
     Task<PaginatedList<DocumentCategoryDto>> Paginate(
         DocumentCategoryFilterDto? filter,
         int pageNumber = Constants.MinPageNumber,

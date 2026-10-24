@@ -96,9 +96,50 @@ public static class DtoMappers
                 [.. dto.EntityChanges.Select(e => e.Model)]);
     }
 
+    extension(DocumentCategoryDto dto)
+    {
+        public DocumentCategoryModel Model =>
+            new(
+                dto.Id,
+                dto.Description,
+                dto.Name,
+                dto.CreatedAt,
+                dto.UpdatedAt,
+                dto.ConcurrencyStamp,
+                dto.IsDeleted);
+    }
+
+    extension(DocumentDto dto)
+    {
+        public DocumentModel Model =>
+            new(
+                dto.Id,
+                dto.CategoryId,
+                dto.Name,
+                dto.CreatedAt,
+                dto.UpdatedAt,
+                dto.ConcurrencyStamp,
+                dto.IsDeleted);
+    }
+
+    extension(DocumentVersionDto dto)
+    {
+        public DocumentVersionModel Model => 
+            new(    
+                dto.Id,
+                dto.ContentHash,
+                dto.DocumentId,
+                dto.FileId,
+                dto.FileType,
+                dto.CreatedAt,
+                dto.UpdatedAt,
+                dto.ConcurrencyStamp,
+                dto.IsDeleted);
+    }
+
     extension(TicketDto dto)
     {
-        public TicketModel Model =>
+        public FullTicketModel Model =>
             new(
                 dto.Id,
                 dto.Description,

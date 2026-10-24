@@ -5,7 +5,8 @@ public class Document : AuditedEntity, IHasConcurrencyStamp
     protected List<DocumentVersion> DocumentVersions { get; set; } = [];
 
     /// <summary>
-    /// Gets or sets the foreign key identifier for the single parent category folder.
+    /// Gets or sets the foreign key identifier for the single parent category.
+    /// Setter is public so it can be set without having to set document category
     /// </summary>
     /// <value>
     /// The unique identifier of the associated <see cref="DocumentCategory"/>.
@@ -36,19 +37,30 @@ public class Document : AuditedEntity, IHasConcurrencyStamp
     /// </item>
     /// <item>
     /// <description>
-    /// **Secure Multi-Tenancy &amp; Compliance:** Enforces clean data lineage. Access controls, tenant isolation 
+    /// **Secure Multi-Tenancy & Compliance:** Enforces clean data lineage. Access controls, tenant isolation 
     /// rules, and data retention policies inherit perfectly from a single parent category node without the risk 
     /// of permission leaks caused by complex junction table overlaps.
     /// </description>
     /// </item>
     /// </list>
     /// </remarks>
-    public long DocumentCategoryId { get; protected set; }
+    public long DocumentCategoryId { get; set; }
 
     /// <summary>
     /// Gets or sets the navigation property referencing the single parent category folder.
     /// </summary>
-    public DocumentCategory DocumentCategory { get; protected set; } = null!;
+    public DocumentCategory DocumentCategory
+    {
+        get;
+        set
+        {
+            field = value;
+            if (value != null)
+            {
+                DocumentCategoryId = value.Id;
+            }
+        }
+    } = null!;
 
     public string Name { get; set; } = string.Empty;
 
@@ -57,4 +69,24 @@ public class Document : AuditedEntity, IHasConcurrencyStamp
     public IReadOnlyCollection<DocumentVersion> Versions => DocumentVersions;
 
     public Document() {}
+
+    public Document(
+       Guid externalId,
+       DocumentCategory documentCategory,
+       string name)
+    {
+        ExternalId = externalId;
+        DocumentCategory = documentCategory;
+        Name = name;
+    }
+
+    public Document(
+       Guid externalId,
+       long documentCategoryId,
+       string name)
+    {
+        ExternalId = externalId;
+        DocumentCategoryId = documentCategoryId;
+        Name = name;
+    }
 }

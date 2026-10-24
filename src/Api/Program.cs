@@ -124,6 +124,11 @@ builder.Services.AddOptions<CustomDataProtectionOptions>()
     .ValidateDataAnnotations()
     .ValidateOnStart();
 
+builder.Services.AddOptions<FileStorageOptions>()
+    .BindConfiguration(FileStorageOptions.SectionName)
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+
 builder.Services.AddOptions<IdempotencyOptions>()
     .Bind(builder.Configuration.GetSection(IdempotencyOptions.SectionName))
     .ValidateDataAnnotations()

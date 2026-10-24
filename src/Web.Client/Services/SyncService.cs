@@ -104,8 +104,6 @@ public class SyncService(
             {
                 clientRecord.Title = serverRecord.Title;
                 clientRecord.Description = serverRecord.Description;
-                clientRecord.Priority = serverRecord.Priority;
-                clientRecord.Status = serverRecord.Status;
                 clientRecord.CreatedAt = serverRecord.CreatedAt.DateTime;
                 clientRecord.UpdatedAt = serverRecord.UpdatedAt.DateTime;
                 clientRecord.ConcurrencyStamp = serverRecord.ConcurrencyStamp;
@@ -116,8 +114,6 @@ public class SyncService(
                 Id = tm.Id,
                 Title = tm.Title,
                 Description = tm.Description,
-                Priority = tm.Priority,
-                Status = tm.Status,
                 CreatedAt = tm.CreatedAt.DateTime,
                 UpdatedAt = tm.UpdatedAt.DateTime,
                 ConcurrencyStamp = tm.ConcurrencyStamp,
@@ -274,7 +270,10 @@ public class SyncService(
         else
         {
             // Unrecognized table type boundary; safely clean up to prevent infinite boot lockups
-            logger.LogInformation($"[SYNC RECOVERY] Unknown entity type discriminator skipped: '{batch.EntityTypeName}'");
+            if (logger.IsEnabled(LogLevel.Information))
+            {
+                logger.LogInformation("[SYNC RECOVERY] Unknown entity type discriminator skipped: {entityTypName}", batch.EntityTypeName);
+            }
             dbContext.SyncBatches.Remove(batch);
             await dbContext.SaveChangesAsync(cancellationToken);
         }
@@ -298,8 +297,6 @@ public class SyncService(
                 new TicketSyncModel([.. t.Select(x =>  new TicketModel(
                     x.Id, 
                     x.Description,
-                    x.Priority, 
-                    x.Status, 
                     x.Title, 
                     x.CreatedAt,
                     x.UpdatedAt,
@@ -313,8 +310,6 @@ public class SyncService(
                 Id = tm.Id,
                 Title = tm.Title,
                 Description = tm.Description,
-                Priority = tm.Priority,
-                Status = tm.Status,
                 CreatedAt = tm.CreatedAt.DateTime,
                 UpdatedAt = tm.UpdatedAt.DateTime,
                 ConcurrencyStamp = tm.ConcurrencyStamp,

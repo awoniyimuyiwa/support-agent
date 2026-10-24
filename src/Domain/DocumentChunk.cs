@@ -8,7 +8,19 @@ public class DocumentChunk
 
     public long DocumentVersionId { get; protected set; }
 
-    public DocumentVersion DocumentVersion { get; protected set; } = null!;
+    public DocumentVersion DocumentVersion
+    {
+        get;
+        protected set
+        {
+            field = value;
+
+            if (value != null)
+            {
+                DocumentVersionId = value.Id;
+            }
+        }
+    } = null!;
 
     /// <summary>
     /// Gets or sets the local relative position of this chunk within its specific document version (0, 1, 2...).
@@ -97,7 +109,6 @@ public class DocumentChunk
     {
         Content = content.Trim();
         DocumentVersion = documentVersion;
-        DocumentVersionId = documentVersion.Id;
         Index = index;
         Vector = vector;
     }
