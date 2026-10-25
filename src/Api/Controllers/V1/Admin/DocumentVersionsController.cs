@@ -1,12 +1,15 @@
 ﻿using Api.Attributes;
 using Api.Contracts.Models.V1;
 using Api.Extensions;
+using Api.Options;
 using Application.Contracts;
 using Asp.Versioning;
 using Domain;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
+using System.Collections.ObjectModel;
 using System.ComponentModel.DataAnnotations;
 
 namespace Api.Controllers.V1.Admin;
@@ -20,8 +23,57 @@ public class DocumentVersionsController(
     IDocumentVersionRepository versionRepository,
     IDocumentRepository documentRepository,
     IDocumentService documentService,
+    IOptions<FileStorageOptions> fileStorageOptions,
+    IFileStorageService fileStorageService,
     TimeProvider timeProvider) : ControllerBase
 {
+    readonly FileStorageOptions _fileStorageOptions = fileStorageOptions.Value;
+
+    /// <summary>
+    /// Generates a collection of pre-signed cloud storage upload destinations for a batch of new files.
+    /// </summary>
+    /// <remarks>
+    /// This endpoint validates requested MIME types and generates cryptographically signed destination URLs.
+    /// 
+    /// Clients should validate that individual file sizes do not exceed 
+    /// the configured maximum threshold (default is 4MB) before initiating the upload sequence.
+    /// 
+    /// Files uploaded via these URLs are asynchronously validated by a background worker. 
+    /// Any files exceeding the size limit or violating structural magic-byte signatures will be automatically deleted.
+    /// </remarks>
+    /// <param name="input">The payload containing the list of item identifiers and intended MIME types to authorize.</param>
+    /// <response code="200">Returned when the batch allocation is successful, yielding a dictionary mapped to the user's ItemIds.</response>
+    /// <response code="400">Returned when validation constraints fail, such as duplicate IDs or unsupported file formats.</response>
+    /// <response code="401">Returned when the user is not authenticated.</response>
+    /// <response code="403">Returned when the user is not authorized to access this resource.</response>
+    [HttpPost("create-upload-urls")]
+    [Idempotent]
+    [ProducesResponseType(typeof(UploadUrlsResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<UploadUrlsResponse>> CreateUploadUrls(CreateUploadUrlRequest input)
+    {
+        if (input.Items.Count == 0)
+        {
+            return Ok(new UploadUrlsResponse(ReadOnlyDictionary<Guid, string>.Empty));
+        }
+
+        var itemIdDtoMap = input.Items.ToDictionary(
+            item => item.ItemId,
+            item => new FileDto(Guid.NewGuid(), item.FileType));
+
+        var dtos = itemIdDtoMap.Values.ToList();
+        var dtoIdUrlMap = fileStorageService.GenerateUploadUrls(
+            dtos,
+            _fileStorageOptions.DocumentsContainerName);
+
+        // Link client's ItemId to url
+        var itemIdUrlMap = itemIdDtoMap.ToDictionary(
+            kvp => kvp.Key,                             
+            kvp => dtoIdUrlMap[kvp.Value.Id]);
+
+        return Ok(new UploadUrlsResponse(itemIdUrlMap));
+    }
+
     /// <summary>
     /// Streams document version deltas using cursor-based pagination.
     /// </summary>

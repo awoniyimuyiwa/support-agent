@@ -1,4 +1,6 @@
-﻿namespace Api.Contracts;
+﻿using System.Net.Mime;
+
+namespace Api.Contracts;
 
 public class Constants
 {
@@ -19,4 +21,13 @@ public class Constants
     public const int MaxLengthOfList = 100;
 
     public const int TextMaxLength = 4000;
+
+    /// <summary>
+    /// Centralized list of supported MIME types permitted for file uploads and stream processing.
+    /// Restricted strictly to formats with deterministic magic byte headers (PDF and DOCX) to ensure robust signature validation.
+    /// </summary>
+    public static readonly string[] AllowedFileTypes = [
+        MediaTypeNames.Application.Pdf,
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    ];
 }
