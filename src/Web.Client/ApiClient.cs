@@ -22,10 +22,10 @@ public class ApiClient(HttpClient httpClient)
     /// <summary>
     /// Fetches the current user authentication context and permission maps.
     /// </summary>
-    public async Task<UserInfoModel?> GetUserInfo(
+    public async Task<UserInfoRespone?> GetUserInfo(
         CancellationToken cancellationToken = default)
     {
-        return await httpClient.GetFromJsonAsync<UserInfoModel>(
+        return await httpClient.GetFromJsonAsync<UserInfoRespone>(
             "v1/account/info",
             cancellationToken);
     }
@@ -38,13 +38,13 @@ public class ApiClient(HttpClient httpClient)
             cancellationToken);
     }
 
-    public async Task<WeatherForecastModel[]> StreamWeatherForecasts(
+    public async Task<WeatherForecastSyncItem[]> StreamWeatherForecasts(
         int maxItems = 10, 
         CancellationToken cancellationToken = default)
     {
-        List<WeatherForecastModel>? forecasts = null;
+        List<WeatherForecastSyncItem>? forecasts = null;
 
-        await foreach (var forecast in httpClient.GetFromJsonAsAsyncEnumerable<WeatherForecastModel>("v1/weather-forecasts", cancellationToken))
+        await foreach (var forecast in httpClient.GetFromJsonAsAsyncEnumerable<WeatherForecastSyncItem>("v1/weather-forecasts", cancellationToken))
         {
             if (forecasts?.Count >= maxItems)
             {
@@ -115,7 +115,7 @@ public class ApiClient(HttpClient httpClient)
     }
 
     public async Task<HttpResponseMessage> SyncWeatherForecasts(
-        WeatherForecastSyncModel batch,
+        WeatherForecastSyncRequest batch,
         Guid idempotencyKey,
         CancellationToken cancellationToken = default)
     {
@@ -134,7 +134,7 @@ public class ApiClient(HttpClient httpClient)
     }
 
     public async Task<HttpResponseMessage> SyncTickets(
-        TicketSyncModel batch,
+        TicketSyncRequest batch,
         Guid idempotencyKey,
         CancellationToken cancellationToken = default)
     {

@@ -614,7 +614,7 @@ v1Group.MapGet("/weather-forecasts", (TimeProvider timeProvider) =>
 
     var forecast = Enumerable
         .Range(1, 5)
-        .Select(index => new WeatherForecastModel
+        .Select(index => new WeatherForecastSyncItem
         (
             Guid.NewGuid(),
             // Now loops cleanly over the static local variable tracking snapshot

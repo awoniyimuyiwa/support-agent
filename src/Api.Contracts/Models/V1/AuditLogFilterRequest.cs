@@ -15,7 +15,7 @@ using System.ComponentModel.DataAnnotations;
 /// <param name="To">Logs created on or before this date (ISO 8601 format).</param>
 /// <param name="Url"></param>
 /// <param name="UserId"></param>
-public record AuditLogFilterModel(
+public record AuditLogFilterRequest(
     DateTimeOffset? From = null,
     [MaxLength(Constants.StringMaxLength)] string? HttpMethod = null,
     [MaxLength(Constants.StringMaxLength)] string? IpAddress = null,

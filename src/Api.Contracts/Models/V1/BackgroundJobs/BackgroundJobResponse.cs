@@ -2,7 +2,7 @@
 
 namespace Api.Contracts.Models.V1.BackgroundJobs;
 
-public record BackgroundJobModel(
+public record BackgroundJobResponse(
     Guid Id,
     uint Attempts,
     string? Error,

@@ -93,9 +93,7 @@ public class SyncService(
     /// avoiding complete cache clearing.
     /// </summary>
     public Task FetchTicketDeltas(CancellationToken cancellationToken = default)
-        => FetchDeltas<
-            Ticket,
-            TicketModel>(
+        => FetchDeltas(
 
             apiCall: apiClient.StreamTicketDeltas,
             dbSetSelector: ctx => ctx.Tickets,
@@ -109,7 +107,7 @@ public class SyncService(
                 clientRecord.ConcurrencyStamp = serverRecord.ConcurrencyStamp;
             },
 
-            createFunc: tm => new Ticket
+            createFunc: (TicketSyncItem tm) => new Ticket
             {
                 Id = tm.Id,
                 Title = tm.Title,
@@ -128,7 +126,7 @@ public class SyncService(
     public Task FetchWeatherForecastDeltas(CancellationToken cancellationToken = default)
         => FetchDeltas<
             WeatherForecast,
-            WeatherForecastModel>(
+            WeatherForecastSyncItem>(
 
             apiCall: apiClient.StreamWeatherForecastDeltas,
             dbSetSelector: ctx => ctx.WeatherForecasts,
@@ -286,15 +284,12 @@ public class SyncService(
         SyncBatch batch,
         List<Ticket> tickets,
         CancellationToken cancellationToken = default)
-        => SyncPendingChanges<
-
-            Ticket,
-            TicketModel>(
+        => SyncPendingChanges(
             batch,
             tickets,
 
             apiCall: t => apiClient.SyncTickets(
-                new TicketSyncModel([.. t.Select(x =>  new TicketModel(
+                new TicketSyncRequest([.. t.Select(x =>  new TicketSyncItem(
                     x.Id, 
                     x.Description,
                     x.Title, 
@@ -305,14 +300,14 @@ public class SyncService(
                 batch.Id,
                 cancellationToken),
 
-            mapToEntity: tm => new Ticket
+            mapToEntity: (TicketSyncItem t) => new Ticket
             {
-                Id = tm.Id,
-                Title = tm.Title,
-                Description = tm.Description,
-                CreatedAt = tm.CreatedAt.DateTime,
-                UpdatedAt = tm.UpdatedAt.DateTime,
-                ConcurrencyStamp = tm.ConcurrencyStamp,
+                Id = t.Id,
+                Title = t.Title,
+                Description = t.Description,
+                CreatedAt = t.CreatedAt.DateTime,
+                UpdatedAt = t.UpdatedAt.DateTime,
+                ConcurrencyStamp = t.ConcurrencyStamp,
                 SyncStatus = SyncStatus.Synced
             },
 
@@ -328,12 +323,12 @@ public class SyncService(
         CancellationToken cancellationToken = default)
         => SyncPendingChanges<
             WeatherForecast,
-            WeatherForecastModel>(
+            WeatherForecastSyncItem>(
             batch,
             weatherForecasts,
 
             apiCall: wf => apiClient.SyncWeatherForecasts(
-                new WeatherForecastSyncModel([.. wf.Select(x => new WeatherForecastModel(
+                new WeatherForecastSyncRequest([.. wf.Select(x => new WeatherForecastSyncItem(
                     x.Id,
                     x.Date,
                     x.Summary,
@@ -343,13 +338,13 @@ public class SyncService(
                 batch.Id,
                 cancellationToken),
 
-            mapToEntity: wfm => new WeatherForecast
+            mapToEntity: wf => new WeatherForecast
             {
-                Id = wfm.Id,
-                Date = wfm.Date,
-                TemperatureC = wfm.TemperatureC,
-                Summary = wfm.Summary,
-                ConcurrencyStamp = wfm.ConcurrencyStamp,
+                Id = wf.Id,
+                Date = wf.Date,
+                TemperatureC = wf.TemperatureC,
+                Summary = wf.Summary,
+                ConcurrencyStamp = wf.ConcurrencyStamp,
                 SyncStatus = SyncStatus.Synced
             },
 
@@ -384,7 +379,7 @@ public class SyncService(
             response.EnsureSuccessStatusCode();
           
             var result = await response.Content
-                .ReadFromJsonAsync<DeltaModel<TSyncableModel>>(cancellationToken);
+                .ReadFromJsonAsync<DeltaResponse<TSyncableModel>>(cancellationToken);
 
             if (result is null || result.Items.Count == 0)
             {
@@ -475,7 +470,7 @@ public class SyncService(
         response.EnsureSuccessStatusCode();
 
         var result = await response.Content
-            .ReadFromJsonAsync<SyncResultModel<TSyncableModel>>(cancellationToken);
+            .ReadFromJsonAsync<SyncResponse<TSyncableModel>>(cancellationToken);
         if (result is null) { return []; }
 
         using var writeContext = await dbFactory.CreateDbContextAsync();

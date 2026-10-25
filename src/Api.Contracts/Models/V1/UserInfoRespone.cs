@@ -1,13 +1,14 @@
 namespace Api.Contracts.Models.V1;
 
-public record UserModel(
+using System;
+using System.Collections.Generic;
+
+public record UserInfoRespone(
     string? Email,
     string FirstName,
-    long Id,
+    Guid Id,
     bool IsEmailConfirmed,
     string LastName,
     DateTimeOffset? LockoutEnd,
     string? UserName,
-    DateTimeOffset CreatedAt,
-    DateTimeOffset? UpdatedAt,
-    string? ConcurrencyStamp);
+    List<string>? Roles = null);

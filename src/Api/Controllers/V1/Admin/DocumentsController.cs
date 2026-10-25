@@ -29,12 +29,12 @@ public class DocumentsController(
     /// <param name="pageSize">The number of records per page chunk slice.</param>
     /// <response code="200">When there are no errors</response>
     [HttpGet("stream-deltas")]
-    [ProducesResponseType(typeof(DeltaModel<DocumentModel>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<DeltaModel<DocumentModel>>> StreamDeltas(
+    [ProducesResponseType(typeof(DeltaResponse<DocumentSyncItem>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<DeltaResponse<DocumentSyncItem>>> StreamDeltas(
         [FromQuery][MaxLength(Domain.Shared.Constants.StringMaxLength)] string? next,
         [FromQuery] int pageSize = Domain.Shared.Constants.MaxPageSize)
     {
-        var cursor = next.ToDeltaCursor<DocumentModel>(dataProtector);
+        var cursor = next.ToDeltaCursor<DocumentSyncItem>(dataProtector);
 
         if (!string.IsNullOrWhiteSpace(next) && cursor is null)
         {
@@ -50,7 +50,7 @@ public class DocumentsController(
             pageSize,
             HttpContext.RequestAborted);
 
-        return Ok(new DeltaModel<DocumentModel>(
+        return base.Ok(new DeltaResponse<DocumentSyncItem>(
             [.. cursorList.Items.Select(d => d.Model)],
             cursorList.Next,
             until));
@@ -66,12 +66,12 @@ public class DocumentsController(
     /// <response code="409">When there are conflicts during synchronization.</response>
     [HttpPost("sync")]
     [Idempotent]
-    [ProducesResponseType(typeof(SyncResultModel<DocumentModel>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(SyncResponse<DocumentSyncItem>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
-    public async Task<ActionResult<SyncResultModel<DocumentModel>>> Sync(
-        [FromBody] DocumentSyncModel input)
+    public async Task<ActionResult<SyncResponse<DocumentSyncItem>>> Sync(
+        [FromBody] DocumentSyncRequest input)
     {
         var categoryIds = input.Items
             .Select(x => x.CategoryId)
@@ -94,11 +94,11 @@ public class DocumentsController(
             input.ToDto(categoryIdMap),
             HttpContext.RequestAborted);
 
-        return Ok(new SyncResultModel<DocumentModel>([.. conflicts.Select(d => d.Model)]));
+        return base.Ok(new SyncResponse<DocumentSyncItem>([.. conflicts.Select(d => d.Model)]));
     }
 
     private void Validate(
-        List<DocumentModel> items,
+        List<DocumentSyncItem> items,
         IReadOnlyDictionary<Guid, long> categoryIdMap)
     {
         for (int i = 0; i < items.Count; i++)
@@ -106,7 +106,7 @@ public class DocumentsController(
             var item = items.ElementAt(i);
             if (!categoryIdMap.ContainsKey(item.CategoryId))
             {
-                var key = $"{nameof(DocumentSyncModel.Items)}[{i}].{nameof(DocumentModel.CategoryId)}";
+                var key = $"{nameof(DocumentSyncRequest.Items)}[{i}].{nameof(DocumentSyncItem.CategoryId)}";
                 ModelState.AddModelError(key, Contracts.Constants.InvalidErrorMessage);
             }
         }

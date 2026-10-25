@@ -2,7 +2,7 @@
 
 namespace Api.Contracts.Models.V1;
 
-public record AuditLogModel(
+public record AuditLogResponse(
     Guid Id,
     string? BrowserInfo,
     double Duration,
@@ -15,19 +15,19 @@ public record AuditLogModel(
     string? Url,
     Guid? UserId);
 
-public record AuditLogActionModel(
+public record AuditLogActionResponse(
     DateTimeOffset ExecutionTime,
     string MethodName,
     string? Parameters,
     string ServiceName);
 
-public record EntityChangeModel(
+public record EntityChangeResponse(
     string EntityName,
     string? NewValues,
     string? OldValues,
     EntityChangeType Type);
 
-public record FullAuditLogModel(
+public record FullAuditLogResponse(
     Guid Id,
     string? BrowserInfo,
     double Duration,
@@ -39,9 +39,9 @@ public record FullAuditLogModel(
     DateTimeOffset Timestamp,
     string? Url,
     Guid? UserId,
-    IReadOnlyCollection<AuditLogActionModel> AuditLogActions,
-    IReadOnlyCollection<EntityChangeModel> EntityChanges)
-    : AuditLogModel(
+    IReadOnlyCollection<AuditLogActionResponse> AuditLogActions,
+    IReadOnlyCollection<EntityChangeResponse> EntityChanges)
+    : AuditLogResponse(
         Id, 
         BrowserInfo, 
         Duration, 

@@ -274,8 +274,8 @@ public static class Security
             if (string.IsNullOrWhiteSpace(text)) return null;
 
             var purpose = EncryptionUtils.GetPurpose(
-                typeof(CursorListModel<T>),
-                nameof(CursorListModel<>.Next));
+                typeof(CursorListResponse<T>),
+                nameof(CursorListResponse<>.Next));
 
             try
             {
@@ -301,8 +301,8 @@ public static class Security
             if (string.IsNullOrWhiteSpace(text)) return null;
 
             var purpose = EncryptionUtils.GetPurpose(
-                typeof(DeltaModel<T>),
-                nameof(DeltaModel<>.Next));
+                typeof(DeltaResponse<T>),
+                nameof(DeltaResponse<>.Next));
 
             try
             {

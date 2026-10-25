@@ -24,13 +24,13 @@ public class WeatherForecastsController(
     /// <param name="pageSize">The number of records per page chunk slice.</param>
     /// <response code="200">When there are no errors</response>
     [HttpGet("stream-deltas")]
-    [ProducesResponseType(typeof(DeltaModel<WeatherForecastModel>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<DeltaModel<WeatherForecastModel>>> StreamDeltas(
+    [ProducesResponseType(typeof(DeltaResponse<WeatherForecastSyncItem>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<DeltaResponse<WeatherForecastSyncItem>>> StreamDeltas(
         [FromQuery][MaxLength(Domain.Shared.Constants.StringMaxLength)] string? next,
         [FromQuery] int pageSize = Domain.Shared.Constants.MaxPageSize)
     {
         _ = pageSize;
-        var cursor = next.ToDeltaCursor<WeatherForecastModel>(dataProtector);
+        var cursor = next.ToDeltaCursor<WeatherForecastSyncItem>(dataProtector);
 
         if (!string.IsNullOrWhiteSpace(next) && cursor is null)
         {
@@ -41,7 +41,7 @@ public class WeatherForecastsController(
         var until = timeProvider.GetUtcNow();
 
         // Todo: Get delta list from real weather repository when plugged in later
-        return Ok(new DeltaModel<WeatherForecastModel>(
+        return Ok(new DeltaResponse<WeatherForecastSyncItem>(
             Items: [],
             Next: null,
             Until: until));
@@ -55,18 +55,18 @@ public class WeatherForecastsController(
     /// <response code="409">When there are conflicts during synchronization</response>
     [Idempotent]
     [HttpPost("sync")]
-    [ProducesResponseType(typeof(SyncResultModel<WeatherForecastModel>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(SyncResponse<WeatherForecastSyncItem>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
-    public async Task<ActionResult<SyncResultModel<WeatherForecastModel>>> Sync(
-        [FromBody] WeatherForecastSyncModel request)
+    public async Task<ActionResult<SyncResponse<WeatherForecastSyncItem>>> Sync(
+        [FromBody] WeatherForecastSyncRequest request)
     {
         // Any thrown exception bubbles up to the global exception handler
         // Sync and get conflicts from the service based on the 'request' parameter
 
         // Todo: Get true conflicts from real weather forecast service when plugged in later
         // Defaulting stub to mirror request payload array structure back as a clean loop response
-        return Ok(new SyncResultModel<WeatherForecastModel>(
+        return Ok(new SyncResponse<WeatherForecastSyncItem>(
             Conflicts: request.Items
         ));
     }

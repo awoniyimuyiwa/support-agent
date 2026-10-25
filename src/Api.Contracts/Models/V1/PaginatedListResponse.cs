@@ -1,6 +1,6 @@
 namespace Api.Contracts.Models.V1;
 
-public record PaginatedListModel<T>(
+public record PaginatedListResponse<T>(
     IReadOnlyCollection<T> Items,
     int TotalCount,
     int PageNumber,

@@ -39,9 +39,9 @@ public class BackgroundJobsController(
     /// <param name="pageSize">The number of records per page.</param>
     /// <response code="200">When there are no errors</response>
     [HttpGet]
-    [ProducesResponseType(typeof(PaginatedListModel<BackgroundJobModel>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<PaginatedListModel<BackgroundJobModel>>> Index(
-        [FromQuery] GetBackgroundJobFilterModel? filter,
+    [ProducesResponseType(typeof(PaginatedListResponse<BackgroundJobResponse>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<PaginatedListResponse<BackgroundJobResponse>>> Index(
+        [FromQuery] GetBackgroundJobRequest? filter,
         [FromQuery] int pageNumber = Domain.Shared.Constants.MinPageNumber,
         [FromQuery] int pageSize = Domain.Shared.Constants.MaxPageSize)
     {
@@ -62,13 +62,13 @@ public class BackgroundJobsController(
     /// <param name="pageSize">The number of records per page.</param>
     /// <response code="200">When there are no errors</response>
     [HttpGet("stream")]
-    [ProducesResponseType(typeof(CursorListModel<BackgroundJobModel>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<CursorListModel<BackgroundJobModel>>> Stream(
-        [FromQuery] GetBackgroundJobFilterModel? filter,
+    [ProducesResponseType(typeof(CursorListResponse<BackgroundJobResponse>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<CursorListResponse<BackgroundJobResponse>>> Stream(
+        [FromQuery] GetBackgroundJobRequest? filter,
         [FromQuery] [MaxLength(Domain.Shared.Constants.StringMaxLength)] string? next,
         [FromQuery] int pageSize = Domain.Shared.Constants.MaxPageSize)
     {
-        var cursor = next.ToCursor<BackgroundJobModel>(_dataProtector);
+        var cursor = next.ToCursor<BackgroundJobResponse>(_dataProtector);
 
         if (!string.IsNullOrWhiteSpace(next) && cursor is null)
         {
@@ -92,9 +92,9 @@ public class BackgroundJobsController(
     /// <response code="200">When there are no errors</response>
     /// <response code="404">When background job is not found </response>
     [HttpGet("{id}")]
-    [ProducesResponseType(typeof(BackgroundJobModel), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(BackgroundJobResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<BackgroundJobModel>> View(Guid id)
+    public async Task<ActionResult<BackgroundJobResponse>> View(Guid id)
     {
         var dto = await _backgroundJobRepository.Get(bj => bj.ExternalId == id);
 
@@ -125,7 +125,7 @@ public class BackgroundJobsController(
     /// <response code="200">When there are no errors</response>
     [HttpPost("requeue")]
     public async Task<IActionResult> Requeue(
-        [FromQuery] RequeueBackgroundJobFilterModel? filter)
+        [FromQuery] RequeueBackgroundJobRequest? filter)
     {
         var count = await _backgroundJobRepository.RequeueFailed(
             filter?.Dto,
@@ -145,9 +145,9 @@ public class BackgroundJobsController(
     /// <response code="200">When there are no errors</response>
     /// <response code="404">When background job is not found </response>
     [HttpGet("processing-status")]
-    [ProducesResponseType(typeof(BackgroundServiceStatModel), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(BackgroundServiceStatResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<BackgroundServiceStatModel>> ProcessingStatus()
+    public async Task<ActionResult<BackgroundServiceStatResponse>> ProcessingStatus()
     {
         var dto = await _backgroundServiceStatRepository.Get
             (bss => bss.Type == BackgroundServiceStatType.BackgroundJob);

@@ -1,4 +1,3 @@
-using Domain.Shared;
 using System.ComponentModel.DataAnnotations;
 
 namespace Api.Contracts.Models.V1;
@@ -12,7 +11,7 @@ namespace Api.Contracts.Models.V1;
 /// <param name="IsEmailConfirmed">Filter by email confirmation status.</param>
 /// <param name="UpdatedFrom">Users updated on or after this date (ISO 8601 format).</param>
 /// <param name="UpdatedTo">Users updated on or before this date (ISO 8601 format).</param>
-public record UserFilterModel(
+public record UserFilterRequest(
     [MaxLength(Domain.Shared.Constants.StringMaxLength)] string? Search = null,
     DateTimeOffset? CreatedFrom = null,
     DateTimeOffset? CreatedTo = null,

@@ -2,7 +2,11 @@
 
 namespace Api.Contracts.Models.V1;
 
-public record WeatherForecastModel(
+public record WeatherForecastSyncRequest(
+    List<WeatherForecastSyncItem> Items,
+    SyncBehavior Behavior = SyncBehavior.Default);
+
+public record WeatherForecastSyncItem(
     Guid Id,
     DateOnly Date,
     string? Summary,
@@ -13,7 +17,3 @@ public record WeatherForecastModel(
 {
     public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
 }
-
-public record WeatherForecastSyncModel(
-    List<WeatherForecastModel> Items,
-    SyncBehavior Behavior = SyncBehavior.Default);

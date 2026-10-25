@@ -28,12 +28,12 @@ public class DocumentCategoriesController(
     /// <param name="pageSize">The number of records per page chunk slice.</param>
     /// <response code="200">When there are no errors</response>
     [HttpGet("stream-deltas")]
-    [ProducesResponseType(typeof(DeltaModel<DocumentCategoryModel>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<DeltaModel<DocumentCategoryModel>>> StreamDeltas(
+    [ProducesResponseType(typeof(DeltaResponse<DocumentCategorySyncItem>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<DeltaResponse<DocumentCategorySyncItem>>> StreamDeltas(
         [FromQuery][MaxLength(Domain.Shared.Constants.StringMaxLength)] string? next,
         [FromQuery] int pageSize = Domain.Shared.Constants.MaxPageSize)
     {
-        var cursor = next.ToDeltaCursor<DocumentCategoryModel>(dataProtector);
+        var cursor = next.ToDeltaCursor<DocumentCategorySyncItem>(dataProtector);
 
         if (!string.IsNullOrWhiteSpace(next) && cursor is null)
         {
@@ -49,7 +49,7 @@ public class DocumentCategoriesController(
             pageSize,
             HttpContext.RequestAborted);
 
-        return Ok(new DeltaModel<DocumentCategoryModel>(
+        return base.Ok(new DeltaResponse<DocumentCategorySyncItem>(
             [.. cursorList.Items.Select(dc => dc.Model)],
             cursorList.Next,
             until));
@@ -64,17 +64,17 @@ public class DocumentCategoriesController(
     /// <response code="409">When there are conflicts during synchronization.</response>
     [HttpPost("sync")]
     [Idempotent]
-    [ProducesResponseType(typeof(SyncResultModel<DocumentCategoryModel>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(SyncResponse<DocumentCategorySyncItem>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
-    public async Task<ActionResult<SyncResultModel<DocumentCategoryModel>>> Sync(
-        [FromBody] DocumentCategorySyncModel input)
+    public async Task<ActionResult<SyncResponse<DocumentCategorySyncItem>>> Sync(
+        [FromBody] DocumentCategorySyncRequest input)
     {
         var conflicts = await categoryService.Sync(
             input.Dto,
             HttpContext.RequestAborted);
 
-        return Ok(new SyncResultModel<DocumentCategoryModel>([.. conflicts.Select(dc => dc.Model)]));
+        return base.Ok(new SyncResponse<DocumentCategorySyncItem>([.. conflicts.Select(dc => dc.Model)]));
     }
 }
 

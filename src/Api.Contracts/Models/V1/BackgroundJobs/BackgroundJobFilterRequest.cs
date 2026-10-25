@@ -16,7 +16,7 @@ namespace Api.Contracts.Models.V1.BackgroundJobs;
 /// <param name="Types">Filter by specific job types or categories.</param>
 /// <param name="UpdatedFrom">Jobs updated on or after this date (ISO 8601 format).</param>
 /// <param name="UpdatedTo">Jobs updated on or before this date (ISO 8601 format).</param>
-public record BackgroundJobFilterModel(
+public record BackgroundJobFilterRequest(
     DateTimeOffset? CreatedFrom = null,
     DateTimeOffset? CreatedTo = null,
     [UniqueMax] BackgroundJobPriority[]? Priorities = null,
@@ -64,7 +64,7 @@ public record BackgroundJobFilterModel(
 /// <param name="Types"><inheritdoc/></param>
 /// <param name="UpdatedFrom"><inheritdoc/></param>
 /// <param name="UpdatedTo"><inheritdoc/></param>
-public record GetBackgroundJobFilterModel(
+public record GetBackgroundJobRequest(
     DateTimeOffset? CreatedFrom = null,
     DateTimeOffset? CreatedTo = null,
     [UniqueMax] BackgroundJobPriority[]? Priorities = null,
@@ -73,7 +73,7 @@ public record GetBackgroundJobFilterModel(
     [UniqueMax] BackgroundJobStatus[]? Statuses = null,
     [UniqueMax] BackgroundJobType[]? Types = null,
     DateTimeOffset? UpdatedFrom = null,
-    DateTimeOffset? UpdatedTo = null) : BackgroundJobFilterModel(
+    DateTimeOffset? UpdatedTo = null) : BackgroundJobFilterRequest(
         CreatedFrom,
         CreatedTo,
         Priorities,
@@ -106,7 +106,7 @@ public record GetBackgroundJobFilterModel(
 /// <param name="Types"><inheritdoc/></param>
 /// <param name="UpdatedFrom"><inheritdoc/></param>
 /// <param name="UpdatedTo"><inheritdoc/></param>
-public record RequeueBackgroundJobFilterModel(
+public record RequeueBackgroundJobRequest(
     DateTimeOffset? CreatedFrom = null,
     DateTimeOffset? CreatedTo = null,
     [UniqueMax(Constants.MaxLengthOfList)] Guid[]? Ids = null,
@@ -118,7 +118,7 @@ public record RequeueBackgroundJobFilterModel(
     [UniqueMax(Constants.MaxLengthOfList)] string[]? TraceIds = null,
     DateTimeOffset? UpdatedFrom = null,
     DateTimeOffset? UpdatedTo = null)
-    : BackgroundJobFilterModel(
+    : BackgroundJobFilterRequest(
         CreatedFrom, 
         CreatedTo, 
         Priorities,

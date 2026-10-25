@@ -35,9 +35,9 @@ public class AuditLogsController(
     /// <param name="pageSize">The number of records per page.</param>
     /// <response code="200">When there are no errors</response>
     [HttpGet]
-    [ProducesResponseType(typeof(PaginatedListModel<AuditLogModel>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<PaginatedListModel<AuditLogModel>>> Index(
-        [FromQuery] AuditLogFilterModel? filter,
+    [ProducesResponseType(typeof(PaginatedListResponse<AuditLogResponse>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<PaginatedListResponse<AuditLogResponse>>> Index(
+        [FromQuery] AuditLogFilterRequest? filter,
         [FromQuery] int pageNumber = Domain.Shared.Constants.MinPageNumber,
         [FromQuery] int pageSize = Domain.Shared.Constants.MaxPageSize)
     {
@@ -58,13 +58,13 @@ public class AuditLogsController(
     /// <param name="pageSize">The number of records per page.</param>
     /// <response code="200">When there are no errors</response>
     [HttpGet("stream")]
-    [ProducesResponseType(typeof(CursorListModel<AuditLogModel>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<CursorListModel<AuditLogModel>>> Stream(
-        [FromQuery] AuditLogFilterModel? filter,
+    [ProducesResponseType(typeof(CursorListResponse<AuditLogResponse>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<CursorListResponse<AuditLogResponse>>> Stream(
+        [FromQuery] AuditLogFilterRequest? filter,
         [FromQuery] [MaxLength(Domain.Shared.Constants.StringMaxLength)] string? next,
         [FromQuery] int pageSize = Domain.Shared.Constants.MaxPageSize)
     {
-        var cursor = next.ToCursor<AuditLogModel>(_dataProtector);
+        var cursor = next.ToCursor<AuditLogResponse>(_dataProtector);
 
         if (!string.IsNullOrWhiteSpace(next) && cursor is null)
         {
@@ -88,9 +88,9 @@ public class AuditLogsController(
     /// <response code="200">When there are no errors</response>
     /// <response code="404">When audit log is not found </response>
     [HttpGet("{id}")]
-    [ProducesResponseType(typeof(FullAuditLogModel), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(FullAuditLogResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<FullAuditLogModel>> View(Guid id)
+    public async Task<ActionResult<FullAuditLogResponse>> View(Guid id)
     {
         var dto = await _auditLogRepository.Get(al => al.ExternalId == id);
 
@@ -120,9 +120,9 @@ public class AuditLogsController(
     /// <response code="200">When there are no errors</response>
     /// <response code="404">When audit log is not found </response>
     [HttpGet("cleanup-status")]
-    [ProducesResponseType(typeof(BackgroundServiceStatModel), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(BackgroundServiceStatResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<BackgroundServiceStatModel>> CleanupStatus()
+    public async Task<ActionResult<BackgroundServiceStatResponse>> CleanupStatus()
     {
         var dto = await _backgroundServiceStatRepository.Get
             (bss => bss.Type == BackgroundServiceStatType.AuditLogCleanUp);

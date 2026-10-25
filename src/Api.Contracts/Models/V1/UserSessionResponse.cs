@@ -1,6 +1,6 @@
 ﻿namespace Api.Contracts.Models.V1;
 
-public record UserSessionModel(
+public record UserSessionResponse(
     string Id,
     string? AuthScheme,
     string? CorrelationId,

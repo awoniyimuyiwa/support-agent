@@ -29,19 +29,19 @@ public class DocumentVersionsController(
     /// <param name="pageSize">The number of records per page chunk slice.</param>
     /// <response code="200">When there are no errors</response>
     [HttpGet("stream-deltas")]
-    [ProducesResponseType(typeof(DeltaModel<DocumentVersionModel>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<DeltaModel<DocumentVersionModel>>> StreamDeltas(
+    [ProducesResponseType(typeof(DeltaResponse<DocumentVersionSyncItem>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<DeltaResponse<DocumentVersionSyncItem>>> StreamDeltas(
         [FromQuery][MaxLength(Domain.Shared.Constants.StringMaxLength)] string? next,
         [FromQuery] int pageSize = Domain.Shared.Constants.MaxPageSize)
     {
-        var cursor = next.ToDeltaCursor<DocumentVersionModel>(dataProtector);
+        var cursor = next.ToDeltaCursor<DocumentVersionSyncItem>(dataProtector);
 
         if (!string.IsNullOrWhiteSpace(next) && cursor is null)
         {
             ModelState.AddModelError(nameof(next), Contracts.Constants.InvalidErrorMessage);
             return ValidationProblem();
         }
-
+        
         var until = timeProvider.GetUtcNow();
 
         var cursorList = await versionRepository.StreamDeltas(
@@ -50,7 +50,7 @@ public class DocumentVersionsController(
             pageSize,
             HttpContext.RequestAborted);
 
-        return Ok(new DeltaModel<DocumentVersionModel>(
+        return base.Ok(new DeltaResponse<DocumentVersionSyncItem>(
             [.. cursorList.Items.Select(dv => dv.Model)],
             cursorList.Next,
             until));
@@ -65,11 +65,11 @@ public class DocumentVersionsController(
     /// <response code="409">When there are conflicts during synchronization.</response>
     [HttpPost("sync")]
     [Idempotent]
-    [ProducesResponseType(typeof(SyncResultModel<DocumentVersionModel>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(SyncResponse<DocumentVersionSyncItem>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
-    public async Task<ActionResult<SyncResultModel<DocumentVersionModel>>> Sync(
-        [FromBody] DocumentVersionSyncModel input)
+    public async Task<ActionResult<SyncResponse<DocumentVersionSyncItem>>> Sync(
+        [FromBody] DocumentVersionSyncRequest input)
     {
         var documentIds = input.Items
             .Select(i => i.DocumentId)
@@ -92,11 +92,11 @@ public class DocumentVersionsController(
             input.ToDto(documentIdMap),
             HttpContext.RequestAborted);
 
-        return Ok(new SyncResultModel<DocumentVersionModel>([.. conflicts.Select(dv => dv.Model)]));
+        return base.Ok(new SyncResponse<DocumentVersionSyncItem>([.. conflicts.Select(dv => dv.Model)]));
     }
 
     private void Validate(
-        List<DocumentVersionModel> items,
+        List<DocumentVersionSyncItem> items,
         IReadOnlyDictionary<Guid, long> documentIdMap)
     {
         for (int i = 0; i < items.Count; i++)
@@ -104,7 +104,7 @@ public class DocumentVersionsController(
             var item = items.ElementAt(i);
             if (!documentIdMap.ContainsKey(item.DocumentId))
             {
-                var key = $"{nameof(DocumentVersionSyncModel.Items)}[{i}].{nameof(DocumentVersionModel.DocumentId)}";
+                var key = $"{nameof(DocumentVersionSyncRequest.Items)}[{i}].{nameof(DocumentVersionSyncItem.DocumentId)}";
                 ModelState.AddModelError(key, Contracts.Constants.InvalidErrorMessage);
             }
         }

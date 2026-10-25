@@ -10,7 +10,7 @@ public static class DtoMappers
     extension(AuditLogDto dto)
     {
         // var model = myDto.Model;
-        public AuditLogModel Model =>
+        public AuditLogResponse Model =>
             new(dto.Id,
                 dto.BrowserInfo,
                 dto.Duration,
@@ -27,7 +27,7 @@ public static class DtoMappers
     extension(AuditLogActionDto dto)
     {
         // Converted into an expression-bodied instance property
-        public AuditLogActionModel Model =>
+        public AuditLogActionResponse Model =>
             new(
                 dto.ExecutionTime,
                 dto.MethodName,
@@ -37,7 +37,7 @@ public static class DtoMappers
 
     extension(BackgroundJobDto dto)
     {
-        public BackgroundJobModel Model =>
+        public BackgroundJobResponse Model =>
             new(
                 dto.Id,
                 dto.Attempts,
@@ -57,7 +57,7 @@ public static class DtoMappers
 
     extension(BackgroundServiceStatDto dto)
     {
-        public BackgroundServiceStatModel Model =>
+        public BackgroundServiceStatResponse Model =>
             new(
                 dto.Id,
                 dto.Details,
@@ -69,7 +69,7 @@ public static class DtoMappers
 
     extension(EntityChangeDto dto)
     {
-        public EntityChangeModel Model =>
+        public EntityChangeResponse Model =>
             new(
                 dto.EntityName,
                 dto.NewValues,
@@ -79,7 +79,7 @@ public static class DtoMappers
 
     extension(FullAuditLogDto dto)
     {
-        public FullAuditLogModel Model =>
+        public FullAuditLogResponse Model =>
             new(
                 dto.Id,
                 dto.BrowserInfo,
@@ -98,7 +98,7 @@ public static class DtoMappers
 
     extension(DocumentCategoryDto dto)
     {
-        public DocumentCategoryModel Model =>
+        public DocumentCategorySyncItem Model =>
             new(
                 dto.Id,
                 dto.Description,
@@ -111,7 +111,7 @@ public static class DtoMappers
 
     extension(DocumentDto dto)
     {
-        public DocumentModel Model =>
+        public DocumentSyncItem Model =>
             new(
                 dto.Id,
                 dto.CategoryId,
@@ -124,7 +124,7 @@ public static class DtoMappers
 
     extension(DocumentVersionDto dto)
     {
-        public DocumentVersionModel Model => 
+        public DocumentVersionSyncItem Model => 
             new(    
                 dto.Id,
                 dto.ContentHash,
@@ -139,7 +139,7 @@ public static class DtoMappers
 
     extension(TicketDto dto)
     {
-        public FullTicketModel Model =>
+        public FullTicketSyncItem Model =>
             new(
                 dto.Id,
                 dto.Description,
@@ -154,7 +154,7 @@ public static class DtoMappers
 
     extension(UserDto dto)
     {
-        public UserModel Model =>
+        public UserResponse Model =>
             new(
                 dto.Email,
                 dto.FirstName,
@@ -170,7 +170,7 @@ public static class DtoMappers
 
     extension(UserSessionDto dto)
     {
-        public UserSessionModel Model =>
+        public UserSessionResponse Model =>
             new(
                 Id: dto.SessionIdHash,
                 AuthScheme: dto.AuthScheme,
@@ -185,14 +185,14 @@ public static class DtoMappers
     extension<TSource>(CursorList<TSource> source) where TSource : class
     {
         // Exposes a generic method to handle the destination mapping projection
-        public CursorListModel<TDestination> ToModelList<TDestination>(Func<TSource, TDestination> selector)
+        public CursorListResponse<TDestination> ToModelList<TDestination>(Func<TSource, TDestination> selector)
             where TDestination : class
         {
             var mappedItems = source.Items
                 .Select(selector)
                 .ToList();
 
-            return new CursorListModel<TDestination>(
+            return new CursorListResponse<TDestination>(
                 Items: mappedItems,
                 Next: source.Next,
                 PageSize: source.PageSize);
@@ -201,14 +201,14 @@ public static class DtoMappers
 
     extension<TSource>(PaginatedList<TSource> source) where TSource : class
     {
-        public PaginatedListModel<TDestination> ToModelList<TDestination>(Func<TSource, TDestination> selector)
+        public PaginatedListResponse<TDestination> ToModelList<TDestination>(Func<TSource, TDestination> selector)
             where TDestination : class
         {
             var mappedItems = source.Items
                 .Select(selector)
                 .ToList();
 
-            return new PaginatedListModel<TDestination>(
+            return new PaginatedListResponse<TDestination>(
                 Items: mappedItems,
                 TotalCount: source.TotalCount,
                 PageNumber: source.PageNumber,

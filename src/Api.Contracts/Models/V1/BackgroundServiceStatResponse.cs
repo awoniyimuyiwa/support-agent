@@ -2,7 +2,7 @@
 
 namespace Api.Contracts.Models.V1;
 
-public record BackgroundServiceStatModel(
+public record BackgroundServiceStatResponse(
     Guid Id,
     object? Details,
     DateTimeOffset LastRunAt,

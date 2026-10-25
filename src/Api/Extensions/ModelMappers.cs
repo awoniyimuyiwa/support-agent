@@ -8,7 +8,7 @@ namespace Api.Extensions;
 
 public static class ModelMappers
 {
-    extension(AuditLogFilterModel model)
+    extension(AuditLogFilterRequest model)
     {
         public AuditLogFilterDto Dto =>
            new(
@@ -23,7 +23,7 @@ public static class ModelMappers
                UserId: model.UserId);
     }
 
-    extension(DocumentCategoryModel model)
+    extension(DocumentCategorySyncItem model)
     {
         public DocumentCategoryDto Dto =>
             new(
@@ -35,7 +35,7 @@ public static class ModelMappers
                 model.ConcurrencyStamp);
     }
 
-    extension(DocumentCategorySyncModel model)
+    extension(DocumentCategorySyncRequest model)
     {
         public DocumentCategorySyncDto Dto =>
             new(
@@ -43,7 +43,7 @@ public static class ModelMappers
                 model.Behavior);
     }
 
-    extension (DocumentModel model)
+    extension (DocumentSyncItem model)
     {
         public DocumentSyncItemDto ToSyncItemDto(IReadOnlyDictionary<Guid, long> categoryIdMap) =>
             new(
@@ -59,7 +59,7 @@ public static class ModelMappers
                 model.ConcurrencyStamp);
     }
 
-    extension(DocumentSyncModel model)
+    extension(DocumentSyncRequest model)
     {
         public DocumentSyncDto ToDto(IReadOnlyDictionary<Guid, long> categoryIdMap) =>
             new(
@@ -67,7 +67,7 @@ public static class ModelMappers
                 model.Behavior);
     }
 
-    extension(DocumentVersionModel model)
+    extension(DocumentVersionSyncItem model)
     {
         public DocumentVersionSyncItemDto ToSyncItemDto(IReadOnlyDictionary<Guid, long> documentIdMap) =>
             new(
@@ -85,7 +85,7 @@ public static class ModelMappers
                 model.ConcurrencyStamp);
     }
 
-    extension(DocumentVersionSyncModel model)
+    extension(DocumentVersionSyncRequest model)
     {
         public DocumentVersionSyncDto ToDto(IReadOnlyDictionary<Guid, long> docuemntIdMap) =>
             new(
@@ -93,7 +93,7 @@ public static class ModelMappers
                 model.Behavior);
     }
 
-    extension(GetBackgroundJobFilterModel model)
+    extension(GetBackgroundJobRequest model)
     {
         public GetBackgroundJobFilterDto Dto =>
            new(
@@ -108,7 +108,7 @@ public static class ModelMappers
                UpdatedTo: model.UpdatedTo);
     }
 
-    extension(RequeueBackgroundJobFilterModel model)
+    extension(RequeueBackgroundJobRequest model)
     {
         public RequeueBackgroundJobFilterDto Dto =>
            new(
@@ -125,7 +125,7 @@ public static class ModelMappers
                UpdatedTo: model.UpdatedTo);
     }
 
-    extension (TicketModel model)
+    extension (TicketSyncItem model)
     {
         public TicketDto Dto =>
             new(
@@ -139,7 +139,7 @@ public static class ModelMappers
                 model.ConcurrencyStamp);
     }
 
-    extension(FullTicketModel model)
+    extension(FullTicketSyncItem model)
     {
         public TicketDto Dto =>
             new(
@@ -153,7 +153,7 @@ public static class ModelMappers
                 model.ConcurrencyStamp);
     }
 
-    extension(TicketSyncModel model)
+    extension(TicketSyncRequest model)
     {
         public TicketSyncDto Dto =>
             new(
@@ -161,7 +161,7 @@ public static class ModelMappers
                 model.Behavior);
     }
 
-    extension(FullTicketSyncModel model)
+    extension(FullTicketSyncRequest model)
     {
         public TicketSyncDto Dto =>
             new(
@@ -169,7 +169,7 @@ public static class ModelMappers
                 model.Behavior);
     }
 
-    extension(UserFilterModel model)
+    extension(UserFilterRequest model)
     {
         public UserFilterDto Dto =>
             new(

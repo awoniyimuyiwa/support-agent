@@ -446,7 +446,7 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
             });
         });
 
-        accountGroup.MapGet("/info", async Task<Results<Ok<UserInfoModel>, ValidationProblem, NotFound>>
+        accountGroup.MapGet("/info", async Task<Results<Ok<UserInfoRespone>, ValidationProblem, NotFound>>
             (ClaimsPrincipal claimsPrincipal, [FromServices] IServiceProvider sp) =>
         {
             var userManager = sp.GetRequiredService<UserManager<ApplicationUser>>();
@@ -462,7 +462,7 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
         });
 
 
-        accountGroup.MapPost("/info", async Task<Results<Ok<UserInfoModel>, ValidationProblem, NotFound>>
+        accountGroup.MapPost("/info", async Task<Results<Ok<UserInfoRespone>, ValidationProblem, NotFound>>
             (ClaimsPrincipal claimsPrincipal, [FromBody] InfoRequest infoRequest, HttpContext context, [FromServices] IServiceProvider sp) =>
         {
             var userManager = sp.GetRequiredService<UserManager<TUser>>();
@@ -507,7 +507,7 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
 
         #region CustomCode
         // Endpoint to fetch all active sessions for the current user. This is useful for account management pages where users can see all their active sessions and log out of them if needed.
-        accountGroup.MapGet("/sessions", async Task<Results<Ok<SessionsModel>, UnauthorizedHttpResult, ProblemHttpResult>> (
+        accountGroup.MapGet("/sessions", async Task<Results<Ok<SessionsResponse>, UnauthorizedHttpResult, ProblemHttpResult>> (
             ClaimsPrincipal claimsPrincipal,
             [FromServices] IUserSessionManager sessionManager) =>
         {
@@ -519,7 +519,7 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
 
             var sessions = await sessionManager.GetAll(long.Parse(userId));
 
-            return TypedResults.Ok(new SessionsModel 
+            return TypedResults.Ok(new SessionsResponse 
             { 
                 Sessions = [.. sessions.Select(s => s.Model)] 
             });
@@ -628,12 +628,12 @@ public static class CustomIdentityApiEndpointRouteBuilderExtensionsV1
         return TypedResults.ValidationProblem(errorDictionary);
     }
 
-    private static Task<UserInfoModel> CreateInfoResponseAsync<TUser>(
+    private static Task<UserInfoRespone> CreateInfoResponseAsync<TUser>(
         TUser user, 
         List<string> roles)
         where TUser : ApplicationUser
     {
-        return Task.FromResult(new UserInfoModel(
+        return Task.FromResult(new UserInfoRespone(
             Email: user.Email,
             FirstName: user.FirstName,
             Id: user.ExternalId,

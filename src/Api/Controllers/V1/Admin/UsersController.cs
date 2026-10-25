@@ -34,9 +34,9 @@ public class UsersController(
     /// <param name="pageSize">The number of records per page.</param>
     /// <response code="200">When there are no errors</response>
     [HttpGet]
-    [ProducesResponseType(typeof(PaginatedListModel<UserModel>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<PaginatedListModel<UserModel>>> Index(
-        [FromQuery] UserFilterModel? filter,
+    [ProducesResponseType(typeof(PaginatedListResponse<UserResponse>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<PaginatedListResponse<UserResponse>>> Index(
+        [FromQuery] UserFilterRequest? filter,
         [FromQuery] int pageNumber = Domain.Shared.Constants.MinPageNumber,
         [FromQuery] int pageSize = Domain.Shared.Constants.MaxPageSize)
     {
@@ -57,13 +57,13 @@ public class UsersController(
     /// <param name="pageSize">The number of records per page.</param>
     /// <response code="200">When there are no errors</response>
     [HttpGet("stream")]
-    [ProducesResponseType(typeof(CursorListModel<UserModel>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<CursorListModel<UserModel>>> Stream(
-        [FromQuery] UserFilterModel? filter,
+    [ProducesResponseType(typeof(CursorListResponse<UserResponse>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<CursorListResponse<UserResponse>>> Stream(
+        [FromQuery] UserFilterRequest? filter,
         [FromQuery] [MaxLength(Domain.Shared.Constants.StringMaxLength)] string? next,
         [FromQuery] int pageSize = Domain.Shared.Constants.MaxPageSize)
     {
-        var cursor = next.ToCursor<UserModel>(_dataProtector);
+        var cursor = next.ToCursor<UserResponse>(_dataProtector);
 
         if (!string.IsNullOrWhiteSpace(next) && cursor is null)
         {
@@ -86,12 +86,12 @@ public class UsersController(
     /// <param name="userId">The unique id of the user.</param>
     /// <response code="200">When there are no errors</response>
     [HttpGet("{userId:long}/sessions")]
-    [ProducesResponseType(typeof(SessionsModel), StatusCodes.Status200OK)]
-    public async Task<ActionResult<SessionsModel>> ViewSessions(long userId)
+    [ProducesResponseType(typeof(SessionsResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<SessionsResponse>> ViewSessions(long userId)
     {
         var sessions = await _sessionManager.GetAll(userId);
 
-        return Ok(new SessionsModel 
+        return Ok(new SessionsResponse 
         { 
             Sessions = [.. sessions.Select(s => s.Model)],
         });

@@ -2,7 +2,7 @@ using Domain.Shared;
 
 namespace Api.Contracts.Models.V1;
 
-public record CursorListModel<T>(
+public record CursorListResponse<T>(
     IReadOnlyCollection<T> Items,
     [property: Protected] string? Next,
     int PageSize) where T : class;
