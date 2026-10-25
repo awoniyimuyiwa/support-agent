@@ -1,6 +1,7 @@
 ﻿using Api.Attributes;
 using Api.Contracts.Models.V1;
 using Api.Extensions;
+using Api.Filters;
 using Api.Options;
 using Application.Contracts;
 using Asp.Versioning;
@@ -46,6 +47,7 @@ public class DocumentVersionsController(
     /// <response code="400">Returned when validation constraints fail, such as duplicate IDs or unsupported file formats.</response>
     /// <response code="401">Returned when the user is not authenticated.</response>
     /// <response code="403">Returned when the user is not authorized to access this resource.</response>
+    [CreatesUploadUrl]
     [HttpPost("create-upload-urls")]
     [Idempotent]
     [ProducesResponseType(typeof(UploadUrlsResponse), StatusCodes.Status200OK)]
@@ -54,7 +56,7 @@ public class DocumentVersionsController(
     {
         if (input.Items.Count == 0)
         {
-            return Ok(new UploadUrlsResponse(ReadOnlyDictionary<Guid, string>.Empty));
+            return Ok(new UploadUrlsResponse(ReadOnlyDictionary<Guid, UploadUrlsResponseItem>.Empty));
         }
 
         var itemIdDtoMap = input.Items.ToDictionary(
@@ -69,7 +71,7 @@ public class DocumentVersionsController(
         // Link client's ItemId to url
         var itemIdUrlMap = itemIdDtoMap.ToDictionary(
             kvp => kvp.Key,                             
-            kvp => dtoIdUrlMap[kvp.Value.Id]);
+            kvp => new UploadUrlsResponseItem(kvp.Value.Id, dtoIdUrlMap[kvp.Value.Id]));
 
         return Ok(new UploadUrlsResponse(itemIdUrlMap));
     }

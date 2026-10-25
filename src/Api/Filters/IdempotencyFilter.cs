@@ -18,7 +18,8 @@ namespace Api.Filters;
 public class IdempotencyFilter(
     IDistributedCache cache,
     IDatabase database,
-    IOptions<IdempotencyOptions> options) : IAsyncActionFilter, IEndpointFilter
+    IOptions<IdempotencyOptions> options,
+    IOptions<FileStorageOptions>? fileOptions = null) : IAsyncActionFilter, IEndpointFilter
 {
     public const string CachePrefix = "idempotency:";
     public const string LockPrefix = "lock:";
@@ -74,7 +75,7 @@ public class IdempotencyFilter(
         var endpoint = httpContext.GetEndpoint();
         var idempotentAttr = endpoint?.Metadata.GetMetadata<IdempotentAttribute>();
         if (idempotentAttr is null) return await next();
-
+       
         var request = httpContext.Request;
         if (!request.Body.CanSeek)
         {
@@ -177,9 +178,16 @@ public class IdempotencyFilter(
                     statusCode.Value,
                     headers);
 
-                var recordTtl = idempotentAttr.RecordTTLMinutes > 0
-                    ? TimeSpan.FromMinutes(idempotentAttr.RecordTTLMinutes)
-                    : TimeSpan.FromMinutes(options.Value.RecordTTLMinutes);
+                var ttlMinutes = idempotentAttr.RecordTTLMinutes switch
+                {
+                    > 0 => idempotentAttr.RecordTTLMinutes,
+
+                    _ when endpoint?.Metadata.GetMetadata<CreatesUploadUrlAttribute>() is not null
+                           && fileOptions is not null => fileOptions.Value.UploadUrlTTLMinutes,
+                    
+                    _ => (double)options.Value.RecordTTLMinutes
+                };
+                var recordTtl = TimeSpan.FromMinutes(ttlMinutes);
 
                 await cache.SetStringAsync(
                     recordKey, 
