@@ -7,7 +7,7 @@ class BackgroundJobTypeRegistry(Dictionary<Type, BackgroundJobType> mappings) : 
 {
     readonly IReadOnlyDictionary<Type, BackgroundJobType> _mappings = mappings;
 
-    public BackgroundJobType GetType(BackgroundJobHandlerDto dto) =>
+    public BackgroundJobType GetType(BackgroundJobPayload dto) =>
         _mappings.TryGetValue(dto.GetType(), out var type)
             ? type
             : throw new NotSupportedException($"No mapping for DTO: {dto.GetType().Name}");

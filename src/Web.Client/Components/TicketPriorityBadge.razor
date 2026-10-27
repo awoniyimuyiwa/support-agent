@@ -1,0 +1,25 @@
+﻿@using Domain.Shared
+
+<span class="badge @CssClass rounded-pill px-2.5 py-1">
+    <span class="bi @IconClass me-1" aria-hidden="true"></span> @Priority.ToString()
+</span>
+
+@code {
+    [Parameter, EditorRequired] 
+    public TicketPriority Priority { get; set; }
+
+    private string CssClass => Priority switch
+    {
+        TicketPriority.High => "bg-danger-subtle text-danger border border-danger-subtle",
+        TicketPriority.Medium => "bg-warning-subtle text-warning-emphasis border border-warning-subtle",
+        TicketPriority.Low => "bg-primary-subtle text-primary-emphasis border border-primary-subtle",
+        _ => "bg-secondary-subtle text-secondary border border-secondary-subtle"
+    };
+
+    private string IconClass => Priority switch
+    {
+        TicketPriority.High => "bi-exclamation-octagon-fill",
+        TicketPriority.Medium => "bi-exclamation-triangle-fill",
+        _ => "bi-info-circle-fill"
+    };
+}

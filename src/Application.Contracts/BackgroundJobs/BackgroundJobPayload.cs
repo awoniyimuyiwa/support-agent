@@ -27,9 +27,12 @@ namespace Application.Contracts.BackgroundJobs;
 /// </list>
 /// </remarks>
 
-public abstract record BackgroundJobHandlerDto;
+public abstract record BackgroundJobPayload;
 
-public record EmailBackgroundJobHandlerDto(
+public record DocumentVersionCreated(Guid Id) : BackgroundJobPayload;
+
+public record EmailJobPayload(
     string Body,
     string Subject,
-    string To) : BackgroundJobHandlerDto;
+    string To) : BackgroundJobPayload;
+

@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
 using Microsoft.EntityFrameworkCore;
+using Polly;
 using SqliteWasmHelper;
 using Web.Client;
 using Web.Client.Data;
@@ -28,7 +29,21 @@ builder.Services.AddHttpClient<ApiClient>(client =>
     var baseUri = new Uri(builder.HostEnvironment.BaseAddress);
     client.BaseAddress = new Uri(baseUri, "api/");
 })
-.AddHttpMessageHandler<AntiforgeryDelegatingHandler>();
+.AddHttpMessageHandler<AntiforgeryDelegatingHandler>()
+.AddStandardResilienceHandler(options =>
+{
+    options.Retry.MaxRetryAttempts = 3;
+    options.Retry.BackoffType = DelayBackoffType.Exponential;
+    options.Retry.UseJitter = true; // Adds random jitter to prevent thundering herd
+
+    // Explicitly allow it to safely retry idempotent POST/PUT requests
+    options.Retry.ShouldHandle = new PredicateBuilder<HttpResponseMessage>()
+        .HandleResult(response =>
+            (int)response.StatusCode >= 500 
+            || response.StatusCode == System.Net.HttpStatusCode.TooManyRequests 
+            || response.StatusCode == System.Net.HttpStatusCode.RequestTimeout)
+        .Handle<HttpRequestException>();
+});
 
 // Register the sWebAssembly SQLite persistent engine factory
 builder.Services.AddSqliteWasmDbContextFactory<ApplicationDbContext>(options =>
@@ -50,6 +65,18 @@ logger.LogInformation("Web.Client WebAssembly engine has successfully booted ins
 // Pass the target bootLogger instance straight down to support structural data writing loops
 await InitializeStorage(host.Services, logger);
 
+AppDomain.CurrentDomain.UnhandledException += (sender, errorArgs) =>
+{
+    if (errorArgs.ExceptionObject is Exception exception)
+    {
+        // Instantly routes to the browser console logs
+        logger.LogError(exception, exception.Message);
+
+        // Optional: Call ApiClient inside this handler to push 
+        // stack traces back to BFF server
+    }
+};
+
 await host.RunAsync();
 
 /// <summary>
@@ -64,7 +91,7 @@ static async Task InitializeStorage(IServiceProvider services, ILogger logger)
         using var context = await dbFactory.CreateDbContextAsync();
 
         // Ensure the SQLite schema is initialized and up to date inside IndexedDB
-        // This creates tables dynamically on first visit without full migration baggage overhead
+        // This creates tables dynamically on first visit
         await context.Database.EnsureCreatedAsync();
 
         // Check for Unfinished In-Flight Synchronization Operations
@@ -79,7 +106,7 @@ static async Task InitializeStorage(IServiceProvider services, ILogger logger)
             logger.LogWarning("Interrupted data synchronization batch discovered during startup processing sequence. Stranded Idempotency Key: {BatchId}", interruptedBatch.Id);
 
             var syncService = services.GetRequiredService<ISyncService>();
-            await syncService.ResumeInterruptedBatch(interruptedBatch.Id);
+            await syncService.ResumeBatch(interruptedBatch.Id);
         }
         else
         {

@@ -1,29 +1,221 @@
 ﻿@page "/admin"
 @rendermode InteractiveAuto
-@attribute [Authorize(Roles = "Admin")]
+@attribute [Authorize(Roles = Domain.Shared.Constants.AdminRoleName)]
 @layout MainLayout
 
+@using Domain.Shared
 @using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
 @using Web.Client.Components
+@using Web.Client.Data
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
 
 <CustomPageTitle Value="Admin Dashboard" />
 
 <div class="p-4 animate-fade-in">
-    <div class="d-flex align-items-center gap-3 mb-4">
-        <div class="bg-primary-subtle text-primary rounded p-2.5 d-inline-flex align-items-center justify-content-center shadow-sm">
-            <span class="bi bi-shield-lock-fill fs-3"></span>
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-3 mb-4">
+        <div class="d-flex align-items-center gap-3">
+            <div class="bg-primary-subtle text-primary rounded p-3 d-inline-flex align-items-center justify-content-center shadow-sm">
+                <span class="bi bi-shield-lock-fill fs-3"></span>
+            </div>
+            <div>
+                <h1 class="h3 fw-bold mb-0">System Control Panel</h1>
+                <small class="text-secondary">Root Infrastructure & Management Hub</small>
+            </div>
         </div>
-        <div>
-            <h1 class="h3 fw-bold mb-0">System Control Panel</h1>
-            <small class="text-secondary">Root Infrastructure & Management Hub</small>
+        <button class="btn btn-white border shadow-sm btn-sm fw-semibold d-flex align-items-center gap-2" @onclick="RefreshStats">
+            <span class="bi bi-arrow-clockwise @_refreshingClass"></span> Refresh Workspace
+        </button>
+    </div>
+
+    @if (_isLocallyLoading)
+    {
+        <!-- Smooth layout skeleton loader preventing immediate layout crash/zeros on server prerender -->
+        <div class="d-flex flex-column align-items-center justify-content-center my-5 py-5 text-secondary">
+            <div class="spinner-border text-primary mb-3" role="status"></div>
+            <span class="small fw-semibold text-uppercase tracking-wider">Mounting Infrastructure Workspace...</span>
         </div>
-    </div>
-    
-    <div class="card border-0 shadow-sm p-4 bg-light">
-        <h4 class="fw-bold text-dark mb-2">Administrative Workspace</h4>
-        <p class="text-secondary mb-0">
-            If you are reading this text, your role-based routing controls have integrated 
-            successfully. Welcome to the root administrative container!
-        </p>
-    </div>
+    }
+    else
+    {
+        <!-- 📊 KPI -->
+        <div class="row g-3 mb-4">
+            <!-- Local Health -->
+            <div class="col-12 col-sm-6 col-xl-3">
+                <div class="card border-0 shadow-sm p-3 h-100 position-relative overflow-hidden">
+                    <div class="d-flex align-items-center justify-content-between mb-2">
+                        <span class="small text-uppercase fw-bold text-secondary">Sync Queue Changes</span>
+                        <span class="bg-warning-subtle text-warning border border-warning-subtle rounded-pill px-2.5 py-0.5 small fw-semibold">
+                            Offline Cache
+                        </span>
+                    </div>
+                    <h2 class="fw-bold mb-1">@_localPendingInserts</h2>
+                    <p class="small text-secondary mb-0">Pending changes waiting to push upstream</p>
+                    <div class="position-absolute end-0 bottom-0 opacity-10 text-warning mb-n2 me-n2">
+                        <span class="bi bi-cloud-arrow-up-fill display-3"></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Open Tickets -->
+            <div class="col-12 col-sm-6 col-xl-3">
+                <div class="card border-0 shadow-sm p-3 h-100 position-relative overflow-hidden">
+                    <div class="d-flex align-items-center justify-content-between mb-2">
+                        <span class="small text-uppercase fw-bold text-secondary">Open Tickets</span>
+                        <span class="bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-2.5 py-0.5 small fw-semibold">
+                            Active Issues
+                        </span>
+                    </div>
+                    <h2 class="fw-bold mb-1">@_openTicketsCount</h2>
+                    <p class="small text-secondary mb-0">Unresolved client issues assigned to workspace</p>
+                    <div class="position-absolute end-0 bottom-0 opacity-10 text-danger mb-n2 me-n2">
+                        <span class="bi bi-ticket-perforated-fill display-3"></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Document Vault -->
+            <div class="col-12 col-sm-6 col-xl-3">
+                <div class="card border-0 shadow-sm p-3 h-100 position-relative overflow-hidden">
+                    <div class="d-flex align-items-center justify-content-between mb-2">
+                        <span class="small text-uppercase fw-bold text-secondary">Active Versions</span>
+                        <span class="bg-success-subtle text-success border border-success-subtle rounded-pill px-2.5 py-0.5 small fw-semibold">
+                            Database Live
+                        </span>
+                    </div>
+                    <h2 class="fw-bold mb-1">@_totalActiveVersions</h2>
+                    <p class="small text-secondary mb-0">Synchronized metadata files in client views</p>
+                    <div class="position-absolute end-0 bottom-0 opacity-10 text-success mb-n2 me-n2">
+                        <span class="bi bi-file-earmark-text-fill display-3"></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pending Binary Batches -->
+            <div class="col-12 col-sm-6 col-xl-3">
+                <div class="card border-0 shadow-sm p-3 h-100 position-relative overflow-hidden">
+                    <div class="d-flex align-items-center justify-content-between mb-2">
+                        <span class="small text-uppercase fw-bold text-secondary">Local Storage Files</span>
+                        <span class="bg-primary-subtle text-primary border border-primary-subtle rounded-pill px-2.5 py-0.5 small fw-semibold">
+                            SQLite Blobs
+                        </span>
+                    </div>
+                    <h2 class="fw-bold mb-1">@_cachedFileCount</h2>
+                    <p class="small text-secondary mb-0">Temporary binary arrays waiting for batch uploads</p>
+                    <div class="position-absolute end-0 bottom-0 opacity-10 text-primary mb-n2 me-n2">
+                        <span class="bi bi-database-fill-lock display-3"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ⚙️ Infrastructure Quick Panel Controls -->
+        <div class="row g-4">
+            <!-- Left Column: Operations State Overview -->
+            <div class="col-12 col-lg-8">
+                <div class="card border-0 shadow-sm p-4 h-100">
+                    <h5 class="fw-bold text-dark mb-3 d-flex align-items-center gap-2">
+                        <span class="bi bi-activity text-primary"></span> Core Management Console
+                    </h5>
+                    <p class="text-secondary small mb-4">
+                        Your administrative console communicates directly with the background SQLite WASM data pipeline.
+                        Initialize tasks, check sync ledgers, or transition views utilizing the shortcuts below.
+                    </p>
+
+                    <div class="row g-3">
+                        <div class="col-12 col-sm-6">
+                            <a href="/admin/documents" class="btn btn-light border p-3 w-100 text-start h-100 d-flex flex-column justify-content-center shadow-xs">
+                                <div class="fw-bold text-dark mb-1"><span class="bi bi-folder-fill text-warning me-2"></span> Documents Portal</div>
+                                <small class="text-muted">Manage system directories and file version records.</small>
+                            </a>
+                        </div>
+                        <div class="col-12 col-sm-6">
+                            <a href="/admin/tickets" class="btn btn-light border p-3 w-100 text-start h-100 d-flex flex-column justify-content-center shadow-xs">
+                                <div class="fw-bold text-dark mb-1"><span class="bi bi-ticket-perforated-fill text-success me-2"></span> Tickets Desk</div>
+                                <small class="text-muted">Review incoming customer requests and ticket queues.</small>
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column: Local Database Storage Controls -->
+            <div class="col-12 col-lg-4">
+                <div class="card border-0 shadow-sm p-4 bg-light border-start border-3 border-primary h-100">
+                    <h5 class="fw-bold text-dark mb-2">Device Storage Sandbox</h5>
+                    <p class="text-secondary small mb-4">
+                        Your offline datasets are stored fully client-side via IndexedDB boundaries.
+                    </p>
+
+                    <div class="d-flex flex-column gap-2">
+                        <div class="d-flex justify-content-between border-bottom pb-2 small">
+                            <span class="text-secondary">Database Status:</span>
+                            <span class="fw-bold text-success">Healthy & Online</span>
+                        </div>
+                        <div class="d-flex justify-content-between border-bottom pb-2 small">
+                            <span class="text-secondary">Sync Target:</span>
+                            <span class="fw-mono fw-medium text-dark">/api/v1/sync</span>
+                        </div>
+                    </div>
+
+                    <div class="mt-4 pt-2">
+                        <button type="button" class="btn btn-outline-danger btn-sm w-100 fw-semibold d-flex align-items-center justify-content-center gap-2" @onclick="HandleDatabasePurge">
+                            <span class="bi bi-trash3-fill"></span> Purge Binary Cache
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
 </div>
+
+
+@code {
+    private int _localPendingInserts = 0;
+    private int _openTicketsCount = 0;
+    private int _totalActiveVersions = 0;
+    private int _cachedFileCount = 0;
+    private string _refreshingClass = "";
+    private bool _isLocallyLoading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (OperatingSystem.IsBrowser())
+        {
+            await LoadStats();
+            _isLocallyLoading = false;
+        }
+    }
+
+    private async Task RefreshStats()
+    {
+        _refreshingClass = "spin-animation";
+        await LoadStats();
+        await Task.Delay(300); // Visual buffer for action confirmation
+        _refreshingClass = "";
+    }
+
+    private async Task LoadStats()
+    {
+        using var context = await DbFactory.CreateDbContextAsync();
+
+        var pendingVersions = await context.DocumentVersions.CountAsync(v => v.SyncStatus != SyncStatus.Synced);
+        var pendingTickets = await context.Tickets.CountAsync(t => t.SyncStatus != SyncStatus.Synced);
+        _localPendingInserts = pendingVersions + pendingTickets;
+
+        _openTicketsCount = await context.Tickets.CountAsync(t => !t.IsDeleted && t.Status != TicketStatus.Closed);
+
+        _totalActiveVersions = await context.DocumentVersions.CountAsync(v => !v.IsDeleted);
+
+        // Heavy binary arrays cached on-device waiting for SAS network pushes
+        _cachedFileCount = await context.StoredFiles.CountAsync();
+    }
+
+    private async Task HandleDatabasePurge()
+    {
+        using var context = await DbFactory.CreateDbContextAsync();
+        context.StoredFiles.RemoveRange(context.StoredFiles);
+        await context.SaveChangesAsync();
+        await LoadStats();
+    }
+}

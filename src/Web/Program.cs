@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.OutputCaching.StackExchangeRedis;
 using Microsoft.EntityFrameworkCore;
+using Polly;
 using ServiceDefaults;
 using SqliteWasmHelper;
 using Web.Auth;
@@ -173,6 +174,21 @@ builder.Services.AddHttpClient<ApiClient>(client =>
 {
     var httpContextAccessor = sp.GetRequiredService<IHttpContextAccessor>();
     return new CookieDelegatingHandler(httpContextAccessor);
+})
+// Must match the exact same retry criteria as the Web.Client project
+// .NET registers a five-strategy resilience pipeline out of the box (Total Timeout, Retry, Circuit Breaker, Attempt Timeout, and Rate Limiter).
+.AddStandardResilienceHandler(options =>
+{
+    // .Net implements 5 resiliene startegies out of the box
+    options.Retry.MaxRetryAttempts = 3;
+    options.Retry.BackoffType = DelayBackoffType.Exponential;
+    options.Retry.UseJitter = true;
+    options.Retry.ShouldHandle = new PredicateBuilder<HttpResponseMessage>()
+        .HandleResult(response =>
+            (int)response.StatusCode >= 500 ||
+            response.StatusCode == System.Net.HttpStatusCode.TooManyRequests ||
+            response.StatusCode == System.Net.HttpStatusCode.RequestTimeout)
+        .Handle<HttpRequestException>();
 });
 
 // Security and cascading auth state (For Server Pre-Rendering Protection)

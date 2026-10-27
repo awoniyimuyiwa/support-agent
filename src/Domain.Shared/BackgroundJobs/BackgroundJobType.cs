@@ -9,6 +9,7 @@
 /// </remarks>
 public enum BackgroundJobType
 {
-    Email
+    Email,
+    DocumentVersionCreated
 }
 

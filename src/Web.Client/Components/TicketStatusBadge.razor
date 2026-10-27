@@ -1,0 +1,17 @@
+﻿@using Domain.Shared
+
+<span class="badge @CssClass rounded-pill px-2.5 py-1">
+    @Status.ToString()
+</span>
+
+@code {
+    [Parameter, EditorRequired] 
+    public TicketStatus Status { get; set; }
+
+    private string CssClass => Status switch
+    {
+        TicketStatus.Open => "bg-success-subtle text-success-emphasis",
+        TicketStatus.InProgress => "bg-info-subtle text-info-emphasis",
+        _ => "bg-light text-secondary border"
+    };
+}

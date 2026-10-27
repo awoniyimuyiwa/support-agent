@@ -1,0 +1,214 @@
+﻿@page "/admin/documents/{DocumentId:guid}/document-versions"
+@rendermode InteractiveAuto
+@attribute [Authorize(Roles = Constants.AdminRoleName)]
+@layout MainLayout
+
+@using Domain.Shared
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@using Web.Client.Components
+@using Web.Client.Data
+@using Web.Client.Extensions
+
+@inject IDbContextFactory<ApplicationDbContext> DbContextFactory
+@inject ILogger<DocumentVersions> Logger
+
+<CustomPageTitle Value="Document Versions" />
+
+<div class="p-4 animate-fade-in">
+    <div class="mb-4 d-flex justify-content-between align-items-center">
+        <div>
+            <a href="/admin/documents" class="btn btn-sm btn-outline-secondary mb-2 fw-semibold">
+                <span class="bi bi-arrow-left"></span> Documents
+            </a>
+            <h1 class="h3 fw-bold mb-0">Versions</h1>
+            <small class="text-muted font-monospace">Document Id: @_documentName (#@DocumentId)</small>
+        </div>
+        <div>
+            <button class="btn btn-primary d-flex align-items-center gap-2 shadow-sm fw-semibold" @onclick="OpenUploadModal">
+                <span class="bi bi-plus-circle"></span> Create
+            </button>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm overflow-hidden mb-4">
+        <div class="table-responsive">
+            <table class="table table-striped align-middle mb-0">
+                <thead class="table-dark text-uppercase small" style="font-size:0.75rem;">
+                    <tr>
+                        <th class="ps-4">Version Commit ID</th>
+                        <th>Content Hash</th>
+                        <th>Remote Cloud Blob Identifier</th>
+                        <th>Mime Asset Type</th>
+                        <th>Created At</th>
+                        <th>Status</th>
+                        <th class="pe-4 text-end">Actions</th>
+                    </tr>
+                </thead>
+
+                <tbody class="small font-monospace">
+                    @if (_versions.Count == 0)
+                    {
+                        <tr>
+                            <td colspan="7" class="text-center p-5 text-muted font-sans-serif">
+                                <span class="bi bi-git fs-1 d-block mb-2 text-secondary opacity-50"></span>
+                                No historical versions bound to this profile index.
+                            </td>
+                        </tr>
+                    }
+                    else
+                    {
+                        @foreach (var version in _versions)
+                        {
+                            <tr>
+                                <td class="ps-4 text-secondary">#@version.Id.ToString()[..8]</td>
+                                <td class="fw-bold text-dark text-truncate" style="max-width: 200px;" title="@version.ContentHash">@version.ContentHash</td>
+                                <td class="text-primary text-truncate" style="max-width:140px;">@(version.File?.Type ?? string.Empty)</td>
+                                <td class="font-sans-serif">@version.CreatedAt.ToLocalTime().ToString("G")</td>
+                                <td class="font-sans-serif">
+                                    <span class="badge bg-light text-secondary border">@version.SyncStatus</span>
+                                </td>
+                                <td class="pe-4 text-end font-sans-serif">
+                                    <button class="btn btn-outline-danger btn-sm border-0" @onclick="() => Delete(version.Id)" title="Soft-delete version slot">
+                                        <span class="bi bi-trash3-fill"></span> Mark Deletion
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@if (_showUploadModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);" role="dialog">
+        <div class="modal-dialog modal-dialog-centered" role="document">
+            <div class="modal-content border-0 shadow-lg">
+                <div class="modal-header bg-light">
+                    <h5 class="modal-title fw-bold text-dark"><span class="bi bi-git me-2"></span>Append Version Increment</h5>
+                    <button type="button" class="btn-close" @onclick="CloseUploadModal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body py-4">
+                    <p class="small text-secondary mb-3">Uploading an updated document variant asset will recalculate checksum parameters and update system history schemas.</p>
+                    <div class="mb-0">
+                        <label class="form-label small fw-bold text-secondary text-uppercase">Select Binary Stream (PDF, DOCX up to 5MB)</label>
+                        <InputFile class="form-control" OnChange="OnInputFileSelected" />
+                        @if (!string.IsNullOrEmpty(_fileValidationError))
+                        {
+                            <div class="text-danger small mt-1 fw-semibold"><span class="bi bi-x-circle-fill"></span> @_fileValidationError</div>
+                        }
+                    </div>
+                </div>
+                <div class="modal-footer bg-light border-0">
+                    <button type="button" class="btn btn-outline-secondary fw-semibold px-4" @onclick="CloseUploadModal">Cancel</button>
+                    <button type="button" class="btn btn-primary fw-semibold px-4" @onclick="Save" disabled="@(_selectedBrowserFile is null || !string.IsNullOrEmpty(_fileValidationError))">
+                        <span class="bi bi-cloud-arrow-up-fill"></span> Commit Incremental Version
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid DocumentId { get; set; }
+
+    private List<DocumentVersion> _versions = [];
+    private string _documentName = "Loading...";
+
+    private IBrowserFile? _selectedBrowserFile = null;
+    private string? _fileValidationError = null;
+    private bool _showUploadModal = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (OperatingSystem.IsBrowser())
+        {
+            await LoadDocument();
+            await LoadVersions();
+        }
+    }
+
+    private void CloseUploadModal() => _showUploadModal = false;
+
+    private async Task Delete(Guid versionId)
+    {
+        using var context = await DbContextFactory.CreateDbContextAsync();
+        var version = await context.DocumentVersions.FindAsync(versionId);
+
+        if (version is not null)
+        {
+            var now = DateTime.UtcNow;
+            version.IsDeleted = true;
+            version.UpdatedAt = now;
+            version.SyncStatus = SyncStatus.PendingDelete;
+            await context.SaveChangesAsync();
+        }
+
+        await LoadVersions();
+    }
+
+    private async Task LoadDocument()
+    {
+        using var context = await DbContextFactory.CreateDbContextAsync();
+        var doc = await context.Documents.FindAsync(DocumentId);
+        if (doc is not null)
+        {
+            _documentName = doc.Name;
+        }
+    }
+
+    private async Task LoadVersions()
+    {
+        using var context = await DbContextFactory.CreateDbContextAsync();
+
+        _versions = await context.DocumentVersions       
+        .Where(v => v.DocumentId == DocumentId && !v.IsDeleted)       
+        .OrderByDescending(v => v.CreatedAt)       
+        .ToListAsync();
+    }
+
+    private void OnInputFileSelected(InputFileChangeEventArgs e)
+    {
+        _selectedBrowserFile = e.File;
+        _fileValidationError = _selectedBrowserFile.Validate();
+    }
+
+    private void OpenUploadModal()
+    {
+        _selectedBrowserFile = null;
+        _fileValidationError = null;
+        _showUploadModal = true;
+    }
+
+    private async Task Save()
+    {
+        if (_selectedBrowserFile is null || !string.IsNullOrWhiteSpace(_fileValidationError)) return;
+
+        using var context = await DbContextFactory.CreateDbContextAsync();
+
+        var document = await context.Documents.FindAsync(DocumentId);
+        if (document is null)
+        {
+            Logger.LogError("Document doesn't exist");
+            return;
+        }
+
+        var (version, error) = await _selectedBrowserFile.ComputeAndCreateVersion(
+            context.DocumentVersions,
+            DocumentId);
+        if (!string.IsNullOrWhiteSpace(error) || version is null)
+        {
+            _fileValidationError = error;
+            return;
+        }
+
+        context.DocumentVersions.Add(version);
+        await context.SaveChangesAsync();
+        _showUploadModal = false;
+        await LoadVersions();
+    }
+}

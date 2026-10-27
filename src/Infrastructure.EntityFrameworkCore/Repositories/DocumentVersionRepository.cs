@@ -19,6 +19,40 @@ class DocumentVersionRepository(
             .FirstOrDefaultAsync(cancellationToken);
     }
 
+    public async Task<HashSet<string>> GetExistingContentHashes(
+        IReadOnlyCollection<string> contentHashes,
+        CancellationToken cancellationToken = default)
+    {
+        if (contentHashes is null || contentHashes.Count == 0)
+        {
+            return [];
+        }
+
+        var existingHashes = await _context.Set<DocumentVersion>()
+            .Where(dv => contentHashes.Contains(dv.ContentHash))
+            .Select(dv => dv.ContentHash)
+            .ToListAsync(cancellationToken);
+
+        return [.. existingHashes];
+    }
+
+    public async Task<HashSet<Guid>> GetExistingFileIds(
+        IReadOnlyCollection<Guid> fileIds,
+        CancellationToken cancellationToken = default)
+    {
+        if (fileIds is null || fileIds.Count == 0)
+        {
+            return [];
+        }
+
+        var existingIds = await _context.Set<DocumentVersion>()
+            .Where(dv => fileIds.Contains(dv.FileId))
+            .Select(dv => dv.FileId)
+            .ToListAsync(cancellationToken);
+
+        return [.. existingIds];
+    }
+
     public Task<PaginatedList<DocumentVersionDto>> Paginate(
         DocumentVersionFilterDto? filter,
         int pageNumber = Constants.MinPageNumber,

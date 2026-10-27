@@ -6,6 +6,8 @@ public interface ISyncableEntity
 
     string? ConcurrencyStamp { get; set; }
 
+    public bool IsDeleted { get; set; }
+
     SyncStatus SyncStatus { get; set; }
 }
 

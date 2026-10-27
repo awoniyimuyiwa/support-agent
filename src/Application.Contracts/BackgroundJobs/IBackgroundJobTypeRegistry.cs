@@ -4,5 +4,5 @@ namespace Application.Contracts.BackgroundJobs;
 
 public interface IBackgroundJobTypeRegistry
 {
-    BackgroundJobType GetType(BackgroundJobHandlerDto dto);
+    BackgroundJobType GetType(BackgroundJobPayload dto);
 }

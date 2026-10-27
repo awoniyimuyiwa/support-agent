@@ -1,0 +1,406 @@
+﻿@page "/admin/documents"
+@rendermode InteractiveAuto
+@attribute [Authorize(Roles = Constants.AdminRoleName)]
+@layout MainLayout
+
+@using System.Security.Cryptography
+@using Domain.Shared
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@using Web.Client.Components
+@using Web.Client.Data
+@using Web.Client.Extensions
+@using Web.Client.Models
+
+@inject IDbContextFactory<ApplicationDbContext> DbContextFactory
+@inject ILogger<Documents> Logger
+@implements IDisposable
+
+<CustomPageTitle Value="Documents" />
+
+<div class="p-4 animate-fade-in">
+    <PageHeader Title="Document Management" Subtitle="Maintain enterprise files, index schemas, and document binaries" IconClass="bi-file-earmark-text-fill">
+        <ActionContent>
+            <button class="btn btn-primary d-flex align-items-center gap-2 shadow-sm fw-semibold" @onclick="OpenCreateModal">
+                <span class="bi bi-cloud-upload-fill"></span> Upload Document
+            </button>
+        </ActionContent>
+    </PageHeader>
+
+    <!-- Search, Filter Panel Panel Controls -->
+    <div class="card border-0 shadow-sm p-3 mb-4 bg-light">
+        <div class="row g-3 align-items-end">
+            <div class="col-md-4">
+                <label class="form-label small fw-bold text-secondary text-uppercase">Search</label>
+                <input type="text" class="form-control" placeholder="Search documents by name..." value="@_filter.SearchTerm" @oninput="OnSearchInputDebounced" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small fw-bold text-secondary text-uppercase">Category</label>
+                <select class="form-select" @bind="_filter.CategoryIdFilter" @bind:after="ResetPage">
+                    <option value="">Categories</option>
+                    @foreach (var cat in _categories)
+                    {
+                        <option value="@cat.Id">@cat.Name</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small fw-bold text-secondary text-uppercase">Sync Status</label>
+                <select class="form-select" @bind="_filter.SyncStatusFilter" @bind:after="ResetPage">
+                    <option value="">Sync States</option>
+                    @foreach (var status in Enum.GetValues<SyncStatus>())
+                    {
+                        <option value="@status">@status.ToString()</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-2">
+                <button class="btn btn-outline-secondary w-100 fw-semibold" @onclick="ToggleSortDirection">
+                    <span class="bi @(_filter.SortDescending ? "bi-sort-down-alt" : "bi-sort-up")"></span> Direction
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Grid -->
+    <div class="card border-0 shadow-sm overflow-hidden mb-3">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light text-secondary small text-uppercase">
+                    <tr>
+                        <th class="ps-4">Name</th>
+                        <th>Category</th>
+                        <th>Latest Version Hash</th>
+                        <th>Created At</th>
+                        <th>Sync State</th>
+                        <th class="pe-4 text-end">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="small">
+                    @if (_documents.Count == 0)
+                    {
+                        <tr>
+                            <td colspan="6" class="text-center p-5 text-muted">No documents.</td>
+                        </tr>
+                    }
+                    else
+                    {
+                        @foreach (var doc in _documents)
+                        {
+                            <tr class="animate-fade-in">
+                                <td class="ps-4 fw-bold text-dark">@doc.Name</td>
+                                <td class="text-secondary">@(doc.DocumentCategory?.Name ?? "Unassigned")</td>
+                                <td>
+                                    <span class="badge bg-light text-secondary border font-monospace px-2">
+                                        @(_latestVersionMap.TryGetValue(doc.Id, out var hash) ? hash[..8] + "..." : "No versions")
+                                    </span>
+                                </td>
+                                <td>@doc.CreatedAt.ToLocalTime().ToString("g")</td>
+                                <td><span class="badge bg-dark-subtle text-dark-emphasis">@doc.SyncStatus</span></td>
+                                <td class="pe-4 text-end">
+                                    <a class="btn btn-outline-secondary btn-sm border-0" href="admin/documents/@doc.Id/document-versions" title="View Version">
+                                        <span class="bi bi-git"></span>
+                                    </a>
+                                    <button class="btn btn-outline-danger btn-sm border-0" @onclick="() => PromptDelete(doc)" title="Delete">
+                                        <span class="bi bi-trash3"></span>
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <Pagination @bind-PageNumber="_filter.PageNumber"
+                PageSize="_filter.PageSize"
+                TotalCount="_totalCount"
+                OnPageChanged="ApplyFilter" />
+</div>
+
+<!-- Upload Document + Version Modal Box -->
+@if (_showUploadModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);" role="dialog">
+        <div class="modal-dialog modal-dialog-centered modal-lg" role="document">
+            <div class="modal-content border-0 shadow-lg">
+                <div class="modal-header bg-light">
+                    <h5 class="modal-title fw-bold text-dark"><span class="bi bi-cloud-upload-fill me-2"></span>Create</h5>
+                    <button type="button" class="btn-close" @onclick="CloseCreateModal" aria-label="Close"></button>
+                </div>
+                <EditForm Model="_inputModel" OnValidSubmit="Save">
+                    <DataAnnotationsValidator />
+                    <div class="modal-body py-4">
+                        <div class="mb-3">
+                            <label class="form-label small fw-bold text-secondary text-uppercase">Name</label>
+                            <InputText class="form-control" placeholder="e.g., Q4 Financial Framework Schema" @bind-Value="_inputModel.Name" />
+                            <ValidationMessage For="() => _inputModel.Name" class="text-danger small mt-1" />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small fw-bold text-secondary text-uppercase">Category</label>
+                            <InputSelect class="form-select" @bind-Value="_inputModel.DocumentCategoryId">
+                                <option value="">Select a category...</option>
+                                @foreach (var cat in _categories)
+                                {
+                                    <option value="@cat.Id.ToString()">@cat.Name</option>
+                                }
+                            </InputSelect>
+                            <ValidationMessage For="() => _inputModel.DocumentCategoryId" class="text-danger small mt-1" />
+                        </div>
+                        <div class="mb-0">
+                            <label class="form-label small fw-bold text-secondary text-uppercase">Select File (PDF, DOCX up to 4MB)</label>
+                            <InputFile class="form-control" OnChange="OnInputFileSelected" />
+                            @if (!string.IsNullOrWhiteSpace(_fileValidationError))
+                            {
+                                <div class="text-danger small mt-1fw-semibold"><span class="bi bi-x-circle-fill"></span> @_fileValidationError</div>
+                            }
+                        </div>
+                    </div>
+                    <div class="modal-footer bg-light border-0">
+                        <button type="button" class="btn btn-outline-secondary fw-semibold px-4" @onclick="CloseCreateModal">Cancel</button>
+                        <button type="submit" class="btn btn-primary fw-semibold px-4" disabled="@(_selectedBrowserFile is null || !string.IsNullOrWhiteSpace(_fileValidationError))">
+                            <span class="bi bi-cloud-arrow-up-fill"></span> Commit Local Asset
+                        </button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Delete Confirmation -->
+@if (_showDeleteModal && _docToDelete is not null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);" role="dialog">
+        <div class="modal-dialog modal-dialog-centered" role="document">
+            <div class="modal-content border-0 shadow-lg">
+                <div class="modal-header bg-danger-subtle text-danger-emphasis">
+                    <h5 class="modal-title fw-bold d-flex align-items-center gap-2">
+                        <span class="bi bi-exclamation-triangle-fill"></span> Delete document
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="CancelDelete" aria-label="Close"></button>
+                </div>
+
+                <div class="modal-body py-4">
+                    <p class="mb-2">Are you sure you want to delete this document? This will soft-delete all attached versions.</p>
+                    <div class="p-3 bg-light rounded border font-monospace small text-truncate text-dark fw-bold">
+                        @_docToDelete.Name
+                    </div>
+                    <p class="text-danger small mt-3 mb-0 fw-semibold">
+                        <span class="bi bi-info-circle-fill"></span> This will flag the document for background cleanup queues.
+                    </p>
+                </div>
+
+                <div class="modal-footer bg-light border-0">
+                    <button type="button" class="btn btn-outline-secondary fw-semibold px-4" @onclick="CancelDelete">
+                        Cancel
+                    </button>
+                    <button type="button" class="btn btn-danger fw-semibold px-4 d-flex align-items-center gap-2" @onclick="ConfirmDelete">
+                        <span class="bi bi-trash3-fill"></span> Delete
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+
+@code {
+    private List<Document> _documents = [];
+    private List<DocumentCategory> _categories = [];
+    private Dictionary<Guid, string> _latestVersionMap = new();
+    private DocumentFilterModel _filter = new();
+    private DocumentModel _inputModel = new();
+    private IBrowserFile? _selectedBrowserFile = null;
+    private string? _fileValidationError = null;
+
+    private int _totalCount = 0;
+    private bool _showUploadModal = false;
+    private bool _showDeleteModal = false;
+    private Document? _docToDelete = null;
+    private CancellationTokenSource? _debounceCts;
+
+    public void Dispose()
+    {
+        _debounceCts?.Cancel();
+        _debounceCts?.Dispose();
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (OperatingSystem.IsBrowser())
+        {
+            await HydrateFilterDropdowns();
+            await ApplyFilter();
+        }
+    }
+
+    private void CancelDelete()
+    {
+        _showDeleteModal = false;
+        _docToDelete = null;
+    }
+
+    private void CloseCreateModal() => _showUploadModal = false;
+
+    private async Task ConfirmDelete()
+    {
+        if (_docToDelete is null) return;
+
+        using var context = await DbContextFactory.CreateDbContextAsync();
+        var now = DateTime.UtcNow;
+        var doc = await context.Documents.FindAsync(_docToDelete.Id);
+        if (doc is not null)
+        {
+            doc.IsDeleted = true;
+            doc.SyncStatus = SyncStatus.PendingDelete;
+            doc.UpdatedAt = now;
+
+            // Cascade delete
+            var versions = await context.DocumentVersions.Where(v => v.DocumentId == doc.Id).ToListAsync();
+            foreach (var v in versions)
+            {
+                v.IsDeleted = true;
+                v.SyncStatus = SyncStatus.PendingDelete;
+                v.UpdatedAt = now;
+            }
+            await context.SaveChangesAsync();
+        }
+            
+        _showDeleteModal = false;    
+        _docToDelete = null;
+        await ApplyFilter();
+    }
+
+    private async Task HydrateFilterDropdowns()
+    {
+        using var context = await DbContextFactory.CreateDbContextAsync();
+        _categories = await context.DocumentCategories
+        .Where(c => !c.IsDeleted)
+        .OrderBy(c => c.Name).ToListAsync();
+    }
+
+    private void OnInputFileSelected(InputFileChangeEventArgs e)
+    {
+        _selectedBrowserFile = e.File;
+        _fileValidationError = _selectedBrowserFile.Validate();
+    }
+
+    private async Task OnSearchInputDebounced(ChangeEventArgs e)
+    {
+        _filter.SearchTerm = e.Value?.ToString() ?? string.Empty;
+        _debounceCts?.Cancel();
+        _debounceCts?.Dispose();
+        _debounceCts = new CancellationTokenSource();
+        var token = _debounceCts.Token;
+
+        try
+        {
+            await Task.Delay(300, token);
+            if (!token.IsCancellationRequested) await ResetPage();
+        }
+        catch (TaskCanceledException) { }
+    }
+
+    private void OpenCreateModal()
+    {
+        _inputModel = new DocumentModel();
+        _selectedBrowserFile = null;
+        _fileValidationError = null;
+        _showUploadModal = true;
+    }
+
+    private void PromptDelete(Document doc)
+    {
+        _docToDelete = doc;
+        _showDeleteModal = true;
+    }
+
+    private async Task ResetPage()
+    {
+        _filter.PageNumber = 1;
+        await ApplyFilter();
+    }
+
+    private async Task Save()
+    {
+        if (_selectedBrowserFile is null || !string.IsNullOrWhiteSpace(_fileValidationError)) return;
+
+        using var context = await DbContextFactory.CreateDbContextAsync();
+        var documentId = Guid.NewGuid();
+
+        var (version, error) = await _selectedBrowserFile.ComputeAndCreateVersion(
+            context.DocumentVersions,
+            documentId);
+        if (!string.IsNullOrWhiteSpace(error) || version is null)
+        {
+            _fileValidationError = error;
+            return;
+        }
+
+        var document = new Document
+        {
+            Id = documentId,
+            Name = _inputModel.Name.Trim(),
+            DocumentCategoryId = Guid.Parse(_inputModel.DocumentCategoryId),
+            CreatedAt = version.CreatedAt,
+            UpdatedAt = version.UpdatedAt,
+            IsDeleted = false,
+            SyncStatus = SyncStatus.PendingInsert
+        };
+        context.Documents.Add(document);
+        context.DocumentVersions.Add(version);
+
+        await context.SaveChangesAsync();
+        _showUploadModal = false;
+        _filter.Reset();
+        await ApplyFilter();
+    }
+
+    private async Task ToggleSortDirection()
+    {
+        _filter.SortDescending = !_filter.SortDescending;
+        await ApplyFilter();
+    }
+
+    private async Task ApplyFilter()
+    {
+        using var context = await DbContextFactory.CreateDbContextAsync();
+
+        IQueryable<Document> query = context.Documents
+        .Include(d => d.DocumentCategory)
+        .Where(d => !d.IsDeleted);
+
+        if (!string.IsNullOrWhiteSpace(_filter.SearchTerm))
+        {
+            var term = $"%{_filter.SearchTerm.Trim()}%";
+            query = query.Where(d => EF.Functions.Like(d.Name, term));
+        }
+
+        if (_filter.CategoryIdFilter.HasValue) query = query.Where(d => d.DocumentCategoryId == _filter.CategoryIdFilter.Value);
+        if (_filter.SyncStatusFilter.HasValue) query = query.Where(d => d.SyncStatus == _filter.SyncStatusFilter.Value);
+
+        _totalCount = await query.CountAsync();
+        query = _filter.SortDescending ? 
+        query.OrderByDescending(d => d.CreatedAt) : query.OrderBy(d => d.CreatedAt);
+
+        _documents = await query.Skip((_filter.PageNumber - 1) * _filter.PageSize)
+        .Take(_filter.PageSize)
+        .ToListAsync();
+
+        // Cache version hash descriptors map mapping profiles cleanly
+        var docIds = _documents.Select(d => d.Id)
+        .ToList();
+
+        _latestVersionMap = await context.DocumentVersions
+        .Where(v => docIds.Contains(v.DocumentId) && !v.IsDeleted)
+        .GroupBy(v => v.DocumentId)
+        .ToDictionaryAsync(
+            g => g.Key,
+            g => g.OrderByDescending(v => v.CreatedAt).Select(v => v.ContentHash).FirstOrDefault() ?? string.Empty
+        );
+
+        StateHasChanged();
+    }
+}

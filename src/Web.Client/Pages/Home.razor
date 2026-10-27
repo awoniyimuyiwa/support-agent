@@ -1,13 +1,208 @@
 ﻿@page "/"
 @rendermode InteractiveAuto
 @attribute [AllowAnonymous]
-@layout MainLayout
+@layout EmptyLayout
 
 @using Microsoft.AspNetCore.Authorization
-@using Web.Client.Components
 
-<CustomPageTitle Value="Home" />
+<div class="landing-wrapper position-relative overflow-hidden min-vh-100 bg-light">
+    <!-- Premium Ambient Background Blur Nodes -->
+    <div class="glow-orb orb-1"></div>
+    <div class="glow-orb orb-2"></div>
 
-<h1>Support Agent</h1>
+    <!-- 🌐 Nav Bar -->
+    <nav class="navbar navbar-expand-lg navbar-glass py-3 px-4 mb-5 border-bottom border-white-50">
+        <div class="container-fluid max-width-container d-flex align-items-center justify-content-between">
+            <div class="d-flex align-items-center gap-2">
+                <div class="bg-primary text-white rounded-3 p-2 d-flex align-items-center justify-content-center shadow-sm brand-icon">
+                    <span class="bi bi-shield-shaded fs-5"></span>
+                </div>
+                <span class="fs-5 fw-bold text-dark tracking-tight">Efmal<span class="text-primary">Desk</span></span>
+            </div>
+            <div class="d-flex align-items-center gap-3">
+                <AuthorizeView>
+                    <NotAuthorized>
+                        <!-- Only visible to guests -->
+                        <a href="/login" class="btn btn-link text-secondary fw-semibold text-decoration-none btn-sm px-3">Sign In</a>
+                        <a href="/tickets/new" class="btn btn-primary fw-semibold btn-sm px-4 py-2 rounded-3 shadow-sm custom-nav-btn">
+                            Launch App <span class="bi bi-arrow-right ms-1"></span>
+                        </a>
+                    </NotAuthorized>
+                    <Authorized>
+                        <!-- Only visible when logged in -->
+                        <span class="small text-secondary me-2 d-none d-sm-inline">Logged in as @context.User.Identity?.Name</span>
+                        <a href="/admin" class="btn btn-primary fw-semibold btn-sm px-4 py-2 rounded-3 shadow-sm custom-nav-btn">
+                            Go to Dashboard <span class="bi bi-speedometer2 ms-1"></span>
+                        </a>
+                    </Authorized>
+                </AuthorizeView>
+            </div>
+        </div>
+    </nav>
 
-Welcome to Support Agent.
+    <!-- 🚀 Hero Section -->
+    <div class="container position-relative z-1 mb-4">
+        <div class="row justify-content-center text-center pt-5">
+            <div class="col-12 col-lg-9 col-xl-8">
+                <!-- Inline Micro Badge -->
+                <div class="d-inline-flex align-items-center gap-2 bg-white border border-light-subtle rounded-pill px-3 py-1.5 mb-4 shadow-xs">
+                    <span class="badge bg-primary-subtle text-primary rounded-pill fw-bold">NEW</span>
+                    <small class="text-secondary fw-medium">WASM SQLite Offline Sync Core is now live</small>
+                </div>
+
+                <!-- Main Header -->
+                <h1 class="display-3 fw-extrabold text-dark tracking-tight mb-3 lh-sm">
+                    The ultra-fast workspace for <span class="text-gradient">Support Agents</span>
+                </h1>
+
+                <!-- Supporting Copy -->
+                <p class="fs-5 text-secondary font-sans font-normal mb-5 px-md-5 lh-base">
+                    Manage client communications, track customer telemetry, and securely sync ticket metrics perfectly—even when your internet connectivity drops.
+                </p>
+
+                <!-- Call to Action Actions -->
+                <div class="d-flex flex-wrap align-items-center justify-content-center gap-3 mb-5">
+                    <a href="/admin" class="btn btn-dark btn-lg px-4 py-3 fw-bold rounded-3 shadow d-inline-flex align-items-center gap-2 transition-all">
+                        <span class="bi bi-speedometer2"></span> Enter Dashboard
+                    </a>
+                    <a href="/tickets" class="btn btn-white border border-gray-200 btn-lg px-4 py-3 fw-bold rounded-3 shadow-sm d-inline-flex align-items-center gap-2 bg-white transition-all">
+                        View Active Queue
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 💻 Interactive Workspace Live Preview Window Mockup -->
+    <div class="container max-width-container mb-5 text-center position-relative z-1 animate-fade-in-up">
+        <div class="browser-mockup border border-light-subtle rounded-4 p-2 bg-white shadow-lg mx-auto" style="max-width: 840px; opacity: 0.98;">
+            <!-- Browser Header Bar Controls -->
+            <div class="d-flex align-items-center justify-content-between px-3 py-2 border-bottom border-light-subtle mb-3">
+                <div class="d-flex align-items-center gap-2">
+                    <span class="dot bg-danger"></span>
+                    <span class="dot bg-warning"></span>
+                    <span class="dot bg-success"></span>
+                    <span class="small text-secondary ms-2 font-monospace fs-xs opacity-50">efmaldesk://local-workspace</span>
+                </div>
+                <div class="d-flex align-items-center gap-1 small text-muted">
+                    <span class="bi bi-wifi-off text-warning me-1"></span> Local Cache Engine Active
+                </div>
+            </div>
+            
+            <!-- Lightweight Mock Interface Body -->
+            <div class="p-3 bg-light rounded-3 text-start">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <div class="h6 fw-bold text-dark mb-0">⚡ Active Local Queue Ledger</div>
+                    <span class="badge bg-primary text-white rounded-2 px-2 py-1 small">2 Unsaved Operations</span>
+                </div>
+                
+                <div class="bg-white border rounded-3 p-3 mb-2 d-flex justify-content-between align-items-center shadow-xs">
+                    <div class="d-flex align-items-center gap-3">
+                        <span class="bi bi-ticket-detailed text-warning fs-4"></span>
+                        <div>
+                            <span class="small d-block fw-bold text-dark">#TK-1042 — Azure Storage Connection Reset Exceptions</span>
+                            <small class="text-muted">Assigned to: You • Updated 2m ago</small>
+                        </div>
+                    </div>
+                    <span class="badge bg-warning-subtle text-warning border border-warning-subtle rounded-pill px-2.5 py-1 small fw-semibold">
+                        Pending Sync
+                    </span>
+                </div>
+                
+                <div class="bg-white border rounded-3 p-3 mb-2 d-flex justify-content-between align-items-center shadow-xs">
+                    <div class="d-flex align-items-center gap-3">
+                        <span class="bi bi-ticket-detailed text-success fs-4"></span>
+                        <div>
+                            <span class="small d-block fw-bold text-dark">#TK-1041 — Workspace initialization pipeline failing on Dev branch</span>
+                            <small class="text-muted">Assigned to: System Administration • Updated 12m ago</small>
+                        </div>
+                    </div>
+                    <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2.5 py-1 small fw-semibold">
+                        Synced Upstream
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 🏷️ Core Operational Value Pillars -->
+    <div class="container position-relative z-1 mb-5 max-width-container">
+        <div class="row g-4 justify-content-center">
+            <div class="col-12 col-md-4">
+                <div class="glass-card p-4 rounded-4 shadow-sm border border-white-50 h-100 d-flex align-items-start gap-3">
+                    <div class="text-primary mt-1"><span class="bi bi-lightning-charge-fill fs-4"></span></div>
+                    <div>
+                        <h6 class="fw-bold text-dark mb-1">Instant Execution</h6>
+                        <p class="small text-secondary mb-0">WASM database interaction processes changes locally without network lag.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-12 col-md-4">
+                <div class="glass-card p-4 rounded-4 shadow-sm border border-white-50 h-100 d-flex align-items-start gap-3">
+                    <div class="text-success mt-1"><span class="bi bi-shield-check fs-4"></span></div>
+                    <div>
+                        <h6 class="fw-bold text-dark mb-1">Deterministic Sync</h6>
+                        <p class="small text-secondary mb-0">Built-in concurrency stamp tracking ensures zero broken record states downstream.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-12 col-md-4">
+                <div class="glass-card p-4 rounded-4 shadow-sm border border-white-50 h-100 d-flex align-items-start gap-3">
+                    <div class="text-info mt-1"><span class="bi bi-window-sidebar fs-4"></span></div>
+                    <div>
+                        <h6 class="fw-bold text-dark mb-1">Unified Interface</h6>
+                        <p class="small text-secondary mb-0">Seamless transition between supervisor insights and individual workflows.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ⚡ Features Showcase Section -->
+    <div class="container position-relative z-1 py-5 max-width-container">
+        <div class="row g-4">
+            <!-- Feature 1 -->
+            <div class="col-12 col-md-6 col-lg-4">
+                <div class="p-4 bg-white rounded-4 border border-light-subtle shadow-xs h-100 transition-all hover-translate">
+                    <div class="feature-icon-wrapper bg-primary-subtle text-primary rounded-3 mb-3 d-inline-flex align-items-center justify-content-center shadow-xs">
+                        <span class="bi bi-wifi-off fs-4"></span>
+                    </div>
+                    <h5 class="fw-bold text-dark mb-2">Offline-First Engine</h5>
+                    <p class="text-secondary small mb-0 lh-base">
+                        Keep modifying tickets and records offline. Changes are saved automatically inside an isolated SQLite WASM sandbox layer.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Feature 2 -->
+            <div class="col-12 col-md-6 col-lg-4">
+                <div class="p-4 bg-white rounded-4 border border-light-subtle shadow-xs h-100 transition-all hover-translate">
+                    <div class="feature-icon-wrapper bg-success-subtle text-success rounded-3 mb-3 d-inline-flex align-items-center justify-content-center shadow-xs">
+                        <span class="bi bi-cloud-check-fill fs-4"></span>
+                    </div>
+                    <h5 class="fw-bold text-dark mb-2">Background Reconciliation</h5>
+                    <p class="text-secondary small mb-0 lh-base">
+                        The application automatically discovers downstream connection updates and safely resolves concurrency conflicts with zero UI blockages.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Feature 3 -->
+            <div class="col-12 col-md-6 col-lg-4">
+                <div class="p-4 bg-white rounded-4 border border-light-subtle shadow-xs h-100 transition-all hover-translate">
+                    <div class="feature-icon-wrapper bg-info-subtle text-info rounded-3 mb-3 d-inline-flex align-items-center justify-content-center shadow-xs">
+                        <span class="bi bi-activity fs-4"></span>
+                    </div>
+                    <h5 class="fw-bold text-dark mb-2">Agent Performance Telemetry</h5>
+                    <p class="text-secondary small mb-0 lh-base">
+                        Review direct real-time productivity blocks, session counts, closed tickets logs, and active queues directly inside a unified view.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    // Component markup successfully fully bounded
+}

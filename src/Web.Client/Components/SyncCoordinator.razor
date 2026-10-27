@@ -5,6 +5,7 @@
 @using System.Net
 @using Microsoft.AspNetCore.Components.Authorization
 @using Web.Client.Data
+@using Web.Client.Extensions
 @using Web.Client.Models;
 @using Web.Client.Services
 
@@ -58,34 +59,64 @@
     </div>
 }
 
-<ConflictResolutionModal TItem="WeatherForecast"                    
-    TKey="Guid"                     
-    IsOpen="_showWeatherModal"                    
-    Conflicts="_weatherConflicts"                    
-    KeySelector="@(wf => wf.Id)"                     
-    DescriptionText="Weather update values differ across attributes. Choose which specific values to preserve for each row attribute field:"                     
-    OnCancel="CancelWeather"                     
-    OnResolve="ApplyWeatherResolutions">
-    <ItemHeader Context="forecast">
-        <h6 class="mb-0 fw-bold text-primary">Weather Forecast for @forecast.Date.ToShortDateString()</h6>
-        <small class="text-muted font-monospace text-uppercase" style="font-size: 0.65rem;">Reference Pointer: @forecast.Id</small>
-    </ItemHeader>
-</ConflictResolutionModal>
+<AuthorizeView Roles="@Domain.Shared.Constants.AdminRoleName" Context="adminContext">
+    <Authorized>
+        <ConflictResolutionModal TItem="DocumentCategory"
+                                 TKey="Guid"
+                                 IsOpen="_showDocumentCategoryModal"
+                                 Conflicts="_documentCategoryConflicts"
+                                 KeySelector="@(dc => dc.Id)"
+                                 DescriptionText="Document category values differ across attributes. Choose which specific values to preserve for each row attribute field:"
+                                 OnCancel="CancelDocumentCategories"
+                                 OnResolve="ApplyDocumentCategoryResolutions">
+            <ItemHeader Context="documentCategory">
+                <h6 class="mb-0 fw-bold text-primary">@documentCategory.Name</h6>
+                <small class="text-muted font-monospace text-uppercase" style="font-size: 0.65rem;">Id: @documentCategory.Id</small>
+            </ItemHeader>
+        </ConflictResolutionModal>
 
-<ConflictResolutionModal TItem="Ticket"                    
-    TKey="Guid"                    
-    IsOpen="_showTicketModal"                     
-    Conflicts="_ticketConflicts"                     
-    KeySelector="@(t => t.Id)"                     
-    DescriptionText="Ticket update values differ across attributes. Choose which specific values to preserve for each row attribute field:"                     
-    OnCancel="CancelTickets"                    
-    OnResolve="ApplyTicketResolutions">
+        <ConflictResolutionModal TItem="Document"
+                                 TKey="Guid"
+                                 IsOpen="_showDocumentModal"
+                                 Conflicts="_documentConflicts"
+                                 KeySelector="@(d => d.Id)"
+                                 DescriptionText="Document values differ across attributes. Choose which specific values to preserve for each row attribute field:"
+                                 OnCancel="CancelDocuments"
+                                 OnResolve="ApplyDocumentResolutions">
+            <ItemHeader Context="document">
+                <h6 class="mb-0 fw-bold text-primary">@document.Name</h6>
+                <small class="text-muted font-monospace text-uppercase" style="font-size: 0.65rem;">Id: @document.Id</small>
+            </ItemHeader>
+        </ConflictResolutionModal>
+
+        <ConflictResolutionModal TItem="DocumentVersion"
+                                 TKey="Guid"
+                                 IsOpen="_showDocumentVersionModal"
+                                 Conflicts="_documentVersionConflicts"
+                                 KeySelector="@(dv => dv.Id)"
+                                 DescriptionText="Document version values differ across attributes. Choose which specific values to preserve for each row attribute field:"
+                                 OnCancel="CancelDocumentVersions"
+                                 OnResolve="ApplyDocumentVersionResolutions">
+            <ItemHeader Context="documentVersion">
+                <small class="text-muted font-monospace text-uppercase" style="font-size: 0.65rem;">Id: @documentVersion.Id</small>
+            </ItemHeader>
+        </ConflictResolutionModal>
+    </Authorized>
+</AuthorizeView>
+
+<ConflictResolutionModal TItem="Ticket"
+                         TKey="Guid"
+                         IsOpen="_showTicketModal"
+                         Conflicts="_ticketConflicts"
+                         KeySelector="@(t => t.Id)"
+                         DescriptionText="Ticket values differ across attributes. Choose which specific values to preserve for each row attribute field:"
+                         OnCancel="CancelTickets"
+                         OnResolve="ApplyTicketResolutions">
     <ItemHeader Context="ticket">
         <h6 class="mb-0 fw-bold text-primary">@ticket.Title</h6>
-        <small class="text-muted font-monospace text-uppercase" style="font-size: 0.65rem;">System Reference Key: @ticket.Id</small>
+        <small class="text-muted font-monospace text-uppercase" style="font-size: 0.65rem;">Id: @ticket.Id</small>
     </ItemHeader>
 </ConflictResolutionModal>
-
 
 @code {
     private DotNetObjectReference<SyncCoordinator>? _objRef;
@@ -106,13 +137,21 @@
 
     private bool _isRefreshing = false;
 
-    // Weather forecast conflict States
-    private bool _showWeatherModal = false;
-    private ImmutableList<(WeatherForecast Client, WeatherForecast Server)> _weatherConflicts = [];
+    // Document conflict States
+    private bool _showDocumentModal = false;
+    private IReadOnlyCollection<(Document Client, Document Server)> _documentConflicts = [];
+
+    // Document category conflict States
+    private bool _showDocumentCategoryModal = false;
+    private IReadOnlyCollection<(DocumentCategory Client, DocumentCategory Server)> _documentCategoryConflicts = [];
+
+    // Document version conflict States
+    private bool _showDocumentVersionModal = false;
+    private IReadOnlyCollection<(DocumentVersion Client, DocumentVersion Server)> _documentVersionConflicts = [];
 
     // Ticket conflict States
     private bool _showTicketModal = false;
-    private ImmutableList<(Ticket Client, Ticket Server)> _ticketConflicts = [];
+    private IReadOnlyCollection<(Ticket Client, Ticket Server)> _ticketConflicts = [];
 
     public void Dispose()
     {
@@ -138,7 +177,7 @@
         if (_isDisposed) { return; }
 
         _isOnline = onlineStatus;
-        if (_isOnline && await IsUserAuthenticated())
+        if (_isOnline && await AuthStateProvider.IsAuthenticated())
         {
             await Sync();
         }
@@ -155,7 +194,7 @@
             _networkModule = await JS.InvokeAsync<IJSObjectReference>("import", "./networkListener.js");
             _isOnline = await _networkModule.InvokeAsync<bool>("registerNetworkListener", _objRef);
 
-            if (_isOnline && await IsUserAuthenticated())
+            if (_isOnline && await AuthStateProvider.IsAuthenticated())
             {
                 await Sync();
             }
@@ -171,7 +210,7 @@
     }
 
     private async Task ApplyTicketResolutions(
-        Dictionary<Guid, Dictionary<string, ResolutionChoice>> decisions)
+        IReadOnlyDictionary<Guid, IReadOnlyDictionary<string, ResolutionChoice>> decisions)
     {
         _showTicketModal = false;
 
@@ -187,51 +226,90 @@
         await Sync();
     }
 
-    private async Task ApplyWeatherResolutions(
-        Dictionary<Guid, Dictionary<string, ResolutionChoice>> decisions)
+    private async Task ApplyDocumentResolutions(
+        IReadOnlyDictionary<Guid, IReadOnlyDictionary<string, ResolutionChoice>> decisions)
     {
-        _showWeatherModal = false;
+        _showDocumentModal = false;
 
-        // Extract the server records from our unified tuple structure.
-        // The server record is used as the baseline, only patching individual fields
-        // where the user explicitly chose to keep their own modifications.
-        var serverRecords = _weatherConflicts
+        var serverRecords = _documentConflicts
         .Select(x => x.Server)
-        .ToImmutableList();
+        .ToList();
 
-        // Pass the nested field-level choice map straight to the merge service
-        await SyncService.ApplyResolutions<WeatherForecast>(
+        await SyncService.ApplyResolutions<Document>(
             decisions,
             serverRecords,
-            ctx => ctx.WeatherForecasts);
+            ctx => ctx.Documents);
 
-        // Instantly force background synchronization to process choices
         await Sync();
     }
 
-    private void CancelTickets() => _showTicketModal = false;
+    private async Task ApplyDocumentCategoryResolutions(
+        IReadOnlyDictionary<Guid, IReadOnlyDictionary<string, ResolutionChoice>> decisions)
+    {
+        _showDocumentCategoryModal = false;
 
-    private void CancelWeather() => _showWeatherModal = false;
+        var serverRecords = _documentCategoryConflicts
+        .Select(x => x.Server)
+        .ToList();
+
+        await SyncService.ApplyResolutions<DocumentCategory>(
+            decisions,
+            serverRecords,
+            ctx => ctx.DocumentCategories);
+
+        await Sync();
+    }
+
+    private async Task ApplyDocumentVersionResolutions(
+        IReadOnlyDictionary<Guid, IReadOnlyDictionary<string, ResolutionChoice>> decisions)
+    {
+        _showDocumentVersionModal = false;
+
+        var serverRecords = _documentVersionConflicts
+        .Select(x => x.Server)
+        .ToList();
+
+        await SyncService.ApplyResolutions<DocumentVersion>(
+            decisions,
+            serverRecords,
+            ctx => ctx.DocumentVersions);
+
+        await Sync();
+    }
+
+    private void CancelDocuments() => _showDocumentModal = false;
+
+    private void CancelDocumentCategories() => _showDocumentCategoryModal = false;
+
+    private void CancelDocumentVersions() => _showDocumentVersionModal = false;
+
+    private void CancelTickets() => _showTicketModal = false;
 
     private async Task ForceManualRefresh()
     {
         if (_isRefreshing
             || _isDisposed) { return; }
 
-        if (!await IsUserAuthenticated()) { return; }
+        var isAdmin = await AuthStateProvider.IsAdmin();
+        var isAuthenticated = isAdmin ? isAdmin : await AuthStateProvider.IsAuthenticated();
+        if (!isAuthenticated)
+        {
+            return;
+        }
 
         try
         {
             _isRefreshing = true;
             StateHasChanged();
 
-            Logger.LogInformation("[SYNC SYSTEM] Executing user-triggered manual milestone refresh pass...");
-
-            // Pull down server changes
-            await SyncService.FetchWeatherForecastDeltas();
             await SyncService.FetchTicketDeltas();
+            if (isAdmin)
+            {
+                await SyncService.FetchDocumentCategoryDeltas();
+                await SyncService.FetchDocumentDeltas();
+                await SyncService.FetchDocumentVersionDeltas();
+            }
 
-            // Clear the alert state banner now that the database state is synchronized
             _showRaceConditionAlert = false;
 
             // Re-render the active screen layouts with the freshly pulled data baselines
@@ -239,7 +317,7 @@
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "[SYNC ERROR] Manual milestone update request failed: {ErrorMessage}", ex.Message);
+            Logger.LogError(ex, ex.Message);
         }
         finally
         {
@@ -257,11 +335,8 @@
                 if (_isDisposed) { break; }
                 if (!_isOnline) { continue; }
 
-                // Pull the current authentication state natively
-                var authState = await AuthStateProvider.GetAuthenticationStateAsync();
-
-                // If the user isn't logged in, skip the network call entirely!
-                if (authState.User.Identity?.IsAuthenticated != true)
+                // If the user isn't logged in, skip the network call entirely
+                if (!await AuthStateProvider.IsAuthenticated())
                 {
                     Logger.LogDebug("User is anonymous. Skipping background keepalive sync.");
                     continue;
@@ -293,7 +368,7 @@
                 }
                 catch (HttpRequestException ex)
                 {
-                    Logger.LogError(ex, "Keepalive network check failed temporarily: {ErrorMessage}", ex.Message);
+                    Logger.LogError(ex, ex.Message);
                 }
             }
         }
@@ -309,7 +384,9 @@
             || !_isOnline
             || _isDisposed) return;
 
-        if (!await IsUserAuthenticated())
+        var isAdmin = await AuthStateProvider.IsAdmin();
+        var isAuthenticated = isAdmin ? isAdmin : await AuthStateProvider.IsAuthenticated();
+        if (!isAuthenticated)
         {
             return;
         }
@@ -320,60 +397,75 @@
             StateHasChanged();
 
             // Flush local changes and unpack structural tuple result sets containing both states
-            var weatherConflicts = await SyncService.SyncPendingChanges<WeatherForecast>(
-                ctx => ctx.WeatherForecasts,
-                SyncService.SyncPendingWeatherForecastChanges);
-
-            var ticketConflicts = await SyncService.SyncPendingChanges<Ticket>(
+            var ticketConflicts = await SyncService.Sync<Ticket>(
                 ctx => ctx.Tickets,
-                SyncService.SyncPendingTicketChanges);
-
-            if (weatherConflicts.Any())
-            {
-                _weatherConflicts = weatherConflicts;
-                _showWeatherModal = true;
-            }
+                SyncService.SyncTickets);
 
             if (ticketConflicts.Any())
             {
                 _ticketConflicts = ticketConflicts;
                 _showTicketModal = true;
             }
-
-            // Fetch incremental delta changes
-            await SyncService.FetchWeatherForecastDeltas();
+            // Fetch changes
             await SyncService.FetchTicketDeltas();
+
+            if (isAdmin)
+            {
+                var documentCategoryConflicts = await SyncService.Sync<DocumentCategory>(
+                    ctx => ctx.DocumentCategories,
+                    SyncService.SyncDocumentCategories);
+                if (documentCategoryConflicts.Any())
+                {
+                    _documentCategoryConflicts = documentCategoryConflicts;
+                    _showDocumentModal = true;
+                }
+                await SyncService.FetchDocumentCategoryDeltas();
+
+                var documentConflicts = await SyncService.Sync<Document>(
+                    ctx => ctx.Documents,
+                    SyncService.SyncDocuments);
+                if (documentConflicts.Any())
+                {
+                    _documentConflicts = documentConflicts;
+                    _showDocumentModal = true;
+                }
+                await SyncService.FetchDocumentDeltas();
+
+                var documentVersionConflicts = await SyncService.Sync<DocumentVersion>(
+                    ctx => ctx.DocumentVersions,
+                    SyncService.SyncDocumentVersions);
+                if (documentVersionConflicts.Any())
+                {
+                    _documentVersionConflicts = documentVersionConflicts;
+                    _showDocumentVersionModal = true;
+                }
+                await SyncService.FetchDocumentVersionDeltas();
+            }
         }
         catch (HttpRequestException ex)
         {
             if (ex.StatusCode == HttpStatusCode.Conflict)
             {
-                // Mid-flight collision intercepted!
+                // Mid-flight collision intercepted
                 // Turn on the user-facing alert state. Do not execute background downloads
                 _showRaceConditionAlert = true;
 
-                Logger.LogInformation("[SYNC SYSTEM] Mid-flight collision intercepted! Running automatic baseline download refresh...{0}");
+                Logger.LogError(ex, ex.Message);
             }
             else
             {
-                Logger.LogError(ex, "Background bidirectional sync failed: {ErrorMessage}", ex.Message);
+                Logger.LogError(ex, ex.Message);
             }
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Background bidirectional sync failed: {ErrorMessage}", ex.Message);
+            Logger.LogError(ex, ex.Message);
         }
         finally
         {
             _isSyncing = false;
             StateHasChanged();
         }
-    }
-
-    private async Task<bool> IsUserAuthenticated()
-    {
-        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
-        return authState.User.Identity?.IsAuthenticated == true;
     }
 
     private async Task UnregisterNetworkListenersAsync(IJSObjectReference module)
@@ -385,7 +477,7 @@
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Error tearing down JS modules safely: {ErrorMessage}", ex.Message);
+            Logger.LogError(ex, ex.Message);
         }
     }
 }

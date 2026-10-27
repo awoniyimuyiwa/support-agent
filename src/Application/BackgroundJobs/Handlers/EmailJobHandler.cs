@@ -4,11 +4,11 @@ using Domain.Shared.BackgroundJobs;
 namespace Application.BackgroundJobs.Handlers;
 
 [BackgroundJobHandler(BackgroundJobType.Email)]
-class EmailBackgroundJobHandler : BackgroundJobHandler<EmailBackgroundJobHandlerDto>
+class EmailJobHandler : BackgroundJobHandler<EmailJobPayload>
 {
     protected override Task Handle(
         Guid id,
-        EmailBackgroundJobHandlerDto data, 
+        EmailJobPayload data, 
         CancellationToken cancellationToken = default)
     {
         var metadata = new { IdempotencyKey = id.ToString() };

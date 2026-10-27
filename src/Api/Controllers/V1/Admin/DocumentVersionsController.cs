@@ -77,6 +77,47 @@ public class DocumentVersionsController(
     }
 
     /// <summary>
+    /// Creates a batch of new document versions
+    /// </summary>
+    /// <param name="input">Batch of new document versions</param>
+    /// <response code="200">When there are no errors</response>
+    /// <response code="400">When there are validation errors</response>
+    /// <response code="401">When user is not authenticated.</response>
+    /// <response code="403">When the user is not authorized to access this resource.</response>
+    [HttpPost("create")]
+    [Idempotent]
+    [ProducesResponseType(typeof(CreateDocumentVersionResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<ActionResult<CreateDocumentVersionResponse>> Create(
+        [FromBody] CreateDocumentVersionRequest input)
+    {
+        var documentIds = input.Items
+            .Select(i => i.DocumentId)
+            .Distinct()
+            .ToList();
+        var documentIdMap = await documentRepository.MapIds(
+            documentIds,
+            ignoreQueryFilters: false,
+            HttpContext.RequestAborted);
+
+        await Validate(
+            input.Items,
+            documentIdMap);
+        if (!ModelState.IsValid)
+        {
+            return ValidationProblem(ModelState);
+        }
+
+        var items = await documentService.CreateVersions(
+            [.. input.Items.Select(i => i.ToDto(documentIdMap))],
+            HttpContext.RequestAborted);
+
+        return base.Ok(new CreateDocumentVersionResponse([.. items.Select(i => i.Model)]));
+    }
+
+    /// <summary>
     /// Streams document version deltas using cursor-based pagination.
     /// </summary>
     /// <param name="next">The opaque encrypted cursor token from the previous response. Pass null for the first page.</param>
@@ -113,7 +154,7 @@ public class DocumentVersionsController(
     /// <summary>
     /// Synchronizes an offline batch of document versions with the server.
     /// </summary>
-    /// <param name="input">Batch of offline modifications.</param>
+    /// <param name="input">Batch of offline modifications. No existing verions will not be procssed</param>
     /// <response code="200">When there are no errors (there could still be conflicts to resolve)</response>
     /// <response code="401">When user is not authenticated.</response>
     /// <response code="409">When there are conflicts during synchronization.</response>
@@ -125,41 +166,51 @@ public class DocumentVersionsController(
     public async Task<ActionResult<SyncResponse<DocumentVersionSyncItem>>> Sync(
         [FromBody] DocumentVersionSyncRequest input)
     {
-        var documentIds = input.Items
-            .Select(i => i.DocumentId)
-            .Distinct()
-            .ToList();
-        var documentIdMap = await documentRepository.MapIds(
-            documentIds,
-            ignoreQueryFilters: false,
-            HttpContext.RequestAborted);
-
-        Validate(
-            input.Items, 
-            documentIdMap);
-        if (!ModelState.IsValid)
-        {
-            return ValidationProblem(ModelState);
-        }
-
-        var conflicts = await documentService.Sync(
-            input.ToDto(documentIdMap),
+        var conflicts = await documentService.SyncVersions(
+            input.Dto,
             HttpContext.RequestAborted);
 
         return base.Ok(new SyncResponse<DocumentVersionSyncItem>([.. conflicts.Select(dv => dv.Model)]));
     }
 
-    private void Validate(
-        List<DocumentVersionSyncItem> items,
+    private async Task Validate(
+        List<CreateDocumentVersionRequestItem> items,
         IReadOnlyDictionary<Guid, long> documentIdMap)
     {
+        var contentHashes = items
+            .Select(i => i.ContentHash)
+            .Distinct()
+            .ToList();
+        var existingContentHashes = await versionRepository.GetExistingContentHashes(
+            contentHashes,
+            HttpContext.RequestAborted);
+
+        var fileIds = items.Select(i => i.FileId)
+            .Distinct()
+            .ToList();
+        var existingFileIds = await versionRepository.GetExistingFileIds(
+            fileIds,
+            HttpContext.RequestAborted);
+
         for (int i = 0; i < items.Count; i++)
         {
             var item = items.ElementAt(i);
             if (!documentIdMap.ContainsKey(item.DocumentId))
             {
-                var key = $"{nameof(DocumentVersionSyncRequest.Items)}[{i}].{nameof(DocumentVersionSyncItem.DocumentId)}";
+                var key = $"{nameof(CreateDocumentVersionRequest.Items)}[{i}].{nameof(CreateDocumentVersionRequestItem.DocumentId)}";
                 ModelState.AddModelError(key, Contracts.Constants.InvalidErrorMessage);
+            }
+
+            if (existingContentHashes.Contains(item.ContentHash))
+            {
+                var key = $"{nameof(CreateDocumentVersionRequest.Items)}[{i}].{nameof(CreateDocumentVersionRequestItem.ContentHash)}";
+                ModelState.AddModelError(key, Contracts.Constants.AlreadyExistsErrorMessage);
+            }
+
+            if (existingFileIds.Contains(item.FileId))
+            {
+                var key = $"{nameof(CreateDocumentVersionRequest.Items)}[{i}].{nameof(CreateDocumentVersionRequestItem.FileId)}";
+                ModelState.AddModelError(key, Contracts.Constants.AlreadyExistsErrorMessage);
             }
         }
     }

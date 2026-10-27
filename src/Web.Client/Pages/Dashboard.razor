@@ -1,15 +1,187 @@
 ﻿@page "/dashboard"
 @rendermode InteractiveAuto
-@attribute [Authorize]
+@attribute [AllowAnonymous]
 @layout MainLayout
 
+@using Domain.Shared
 @using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
 @using Web.Client.Components
+@using Web.Client.Data
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject AuthenticationStateProvider AuthStateProvider
 
 <CustomPageTitle Value="Dashboard" />
 
-<h3>Dashboard</h3>
+<div class="p-4 animate-fade-in">
+    <!-- Welcome Header -->
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-3 mb-4">
+        <div class="d-flex align-items-center gap-3">
+            <div class="bg-success-subtle text-success rounded p-3 d-inline-flex align-items-center justify-content-center shadow-sm">
+                <span class="bi bi-person-workspace fs-3"></span>
+            </div>
+            <div>
+                <h1 class="h3 fw-bold mb-0">Welcome Back, @_agentName</h1>
+                <small class="text-secondary">Support Agent Productivity Desk</small>
+            </div>
+        </div>
+        <button class="btn btn-white border shadow-sm btn-sm fw-semibold d-flex align-items-center gap-2" @onclick="RefreshStats">
+            <span class="bi bi-arrow-clockwise @_refreshingClass"></span> Refresh Workload
+        </button>
+    </div>
+
+    @if (_isLocallyLoading)
+    {
+        <!-- Smooth skeleton layout/loader preventing flash of zeros during WebAssembly initialisation -->
+        <div class="d-flex flex-column align-items-center justify-content-center my-5 py-5 text-secondary">
+            <div class="spinner-border text-success mb-3" role="status"></div>
+            <span class="small fw-semibold text-uppercase tracking-wider">Synchronising Local Workspace...</span>
+        </div>
+    }
+    else
+    {
+        <!-- 📊 Agent KPI Metric Grid Blocks -->
+        <div class="row g-3 mb-4">
+            <!-- Metric 1: Open Tickets Assigned to Me -->
+            <div class="col-12 col-sm-6 col-xl-4">
+                <div class="card border-0 shadow-sm p-3 h-100 position-relative overflow-hidden">
+                    <div class="d-flex align-items-center justify-content-between mb-2">
+                        <span class="small text-uppercase fw-bold text-secondary">My Open Tickets</span>
+                        <span class="bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-2.5 py-0.5 small fw-semibold">
+                            Action Required
+                        </span>
+                    </div>
+                    <h2 class="fw-bold mb-1">@_myOpenTicketsCount</h2>
+                    <p class="small text-secondary mb-0">Unresolved cases currently assigned to you</p>
+                    <div class="position-absolute end-0 bottom-0 opacity-10 text-danger mb-n2 me-n2">
+                        <span class="bi bi-ticket-detailed-fill display-3"></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Metric 2: Tickets Pending Offline Sync -->
+            <div class="col-12 col-sm-6 col-xl-4">
+                <div class="card border-0 shadow-sm p-3 h-100 position-relative overflow-hidden">
+                    <div class="d-flex align-items-center justify-content-between mb-2">
+                        <span class="small text-uppercase fw-bold text-secondary">My Offline Edits</span>
+                        <span class="bg-warning-subtle text-warning border border-warning-subtle rounded-pill px-2.5 py-0.5 small fw-semibold">
+                            Local Changes
+                        </span>
+                    </div>
+                    <h2 class="fw-bold mb-1">@_myPendingSyncCount</h2>
+                    <p class="small text-secondary mb-0">Ticket updates waiting for network reconnection</p>
+                    <div class="position-absolute end-0 bottom-0 opacity-10 text-warning mb-n2 me-n2">
+                        <span class="bi bi-cloud-arrow-up-fill display-3"></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Metric 3: Solved/Closed Tickets by Me (Today/Session) -->
+            <div class="col-12 col-sm-6 col-xl-4">
+                <div class="card border-0 shadow-sm p-3 h-100 position-relative overflow-hidden">
+                    <div class="d-flex align-items-center justify-content-between mb-2">
+                        <span class="small text-uppercase fw-bold text-secondary">My Closed Tickets</span>
+                        <span class="bg-success-subtle text-success border border-success-subtle rounded-pill px-2.5 py-0.5 small fw-semibold">
+                            Resolved
+                        </span>
+                    </div>
+                    <h2 class="fw-bold mb-1">@_myClosedTicketsCount</h2>
+                    <p class="small text-secondary mb-0">Total cases resolved in your local registry</p>
+                    <div class="position-absolute end-0 bottom-0 opacity-10 text-success mb-n2 me-n2">
+                        <span class="bi bi-check-circle-fill display-3"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 🛠️ Quick Actions & Task Shortcuts -->
+        <div class="card border-0 shadow-sm p-4">
+            <h5 class="fw-bold text-dark mb-3 d-flex align-items-center gap-2">
+                <span class="bi bi-lightning-charge-fill text-primary"></span> Quick Operations
+            </h5>
+            <p class="text-secondary small mb-4">
+                Review your queue or launch a brand-new support ticket instance. Any entries created while offline will be securely cached in your browser's SQLite engine until a stable link is found.
+            </p>
+
+            <div class="row g-3">
+                <div class="col-12 col-md-6">
+                    <a href="/tickets" class="btn btn-light border p-3 w-100 text-start h-100 d-flex align-items-center gap-3 shadow-xs">
+                        <div class="bg-primary-subtle text-primary rounded p-2.5 d-inline-flex align-items-center justify-content-center">
+                            <span class="bi bi-list-task fs-4"></span>
+                        </div>
+                        <div>
+                            <div class="fw-bold text-dark mb-0">View My Tickets Queue</div>
+                            <small class="text-muted">Open your complete conversational work ledger.</small>
+                        </div>
+                    </a>
+                </div>
+                <div class="col-12 col-md-6">
+                    <a href="/tickets" class="btn btn-light border p-3 w-100 text-start h-100 d-flex align-items-center gap-3 shadow-xs">
+                        <div class="bg-success-subtle text-success rounded p-2.5 d-inline-flex align-items-center justify-content-center">
+                            <span class="bi bi-plus-circle-fill fs-4"></span>
+                        </div>
+                        <div>
+                            <div class="fw-bold text-dark mb-0">Create New Ticket</div>
+                            <small class="text-muted">Initialize a brand-new customer request profile.</small>
+                        </div>
+                    </a>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
 
 @code {
+    private string _agentName = "Support Agent";
+    private int _myOpenTicketsCount = 0;
+    private int _myPendingSyncCount = 0;
+    private int _myClosedTicketsCount = 0;
+    private string _refreshingClass = "";
+    private bool _isLocallyLoading = true;
 
+    protected override async Task OnInitializedAsync()
+    {
+        if (OperatingSystem.IsBrowser())
+        {
+            await LoadStats();
+            _isLocallyLoading = false;
+        }
+    }
+
+    private async Task RefreshStats()
+    {
+        _refreshingClass = "spin-animation";
+        await LoadStats();
+        await Task.Delay(300); // Visual buffer for action confirmation
+        _refreshingClass = "";
+    }
+
+    private async Task LoadStats()
+    {
+        // Resolve the authenticated user's name from claims for the welcome banner
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+
+        if (user.Identity?.IsAuthenticated == true)
+        {
+            _agentName = user.FindFirst("name")?.Value
+                      ?? user.Identity.Name
+                      ?? "Support Agent";
+        }
+
+        using var context = await DbFactory.CreateDbContextAsync();
+
+        // Open Tickets (Active, non-deleted records)
+        _myOpenTicketsCount = await context.Tickets
+            .CountAsync(t => !t.IsDeleted && t.Status != TicketStatus.Closed);
+
+        // Pending Sync (Anything created offline or locally modified that isn't synced yet)
+        _myPendingSyncCount = await context.Tickets
+            .CountAsync(t => t.SyncStatus != SyncStatus.Synced || string.IsNullOrEmpty(t.ConcurrencyStamp));
+
+        // Closed/Resolved Tickets visible in the local workspace registry
+        _myClosedTicketsCount = await context.Tickets
+            .CountAsync(t => !t.IsDeleted && t.Status == TicketStatus.Closed);
+    }
 }

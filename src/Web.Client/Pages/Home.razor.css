@@ -1,0 +1,113 @@
+﻿/* Core Styling Rules */
+.max-width-container {
+    max-width: 1140px;
+}
+
+.fw-extrabold {
+    font-weight: 850;
+}
+
+.tracking-tight {
+    letter-spacing: -0.03em;
+}
+
+/* Background Ambient Blur Meshes */
+.glow-orb {
+    position: absolute;
+    width: 500px;
+    height: 500px;
+    border-radius: 50%;
+    filter: blur(140px);
+    opacity: 0.45;
+    z-index: 0;
+    pointer-events: none;
+}
+
+.orb-1 {
+    top: -150px;
+    right: -100px;
+    background: radial-gradient(circle, rgba(13,110,253,0.4) 0%, rgba(255,255,255,0) 70%);
+}
+
+.orb-2 {
+    bottom: -100px;
+    left: -150px;
+    background: radial-gradient(circle, rgba(25,135,84,0.3) 0%, rgba(255,255,255,0) 70%);
+}
+
+/* Gradient Header Text */
+.text-gradient {
+    background: linear-gradient(135deg, #0d6efd 0%, #198754 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+/* Glassmorphism Classes */
+.navbar-glass {
+    background: rgba(248, 249, 250, 0.75);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+}
+
+.glass-card {
+    background: rgba(255, 255, 255, 0.65);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.7) !important;
+}
+
+/* Feature Layout Customizations */
+.brand-icon {
+    width: 38px;
+    height: 38px;
+}
+
+.feature-icon-wrapper {
+    width: 48px;
+    height: 48px;
+}
+
+/* Smooth Interactive Micro-Transitions */
+.transition-all {
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.hover-translate:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 10px 20px rgba(0,0,0,0.04) !important;
+    border-color: rgba(13,110,253,0.2) !important;
+}
+
+.btn-white:hover {
+    background-color: #f8f9fa !important;
+    border-color: #dee2e6 !important;
+}
+
+/* Mock Browser Frame Indicators */
+.dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.fs-xs {
+    font-size: 0.75rem;
+}
+
+/* Keyframe Entry Micro-Animations */
+.animate-fade-in-up {
+    animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(24px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}

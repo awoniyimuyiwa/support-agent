@@ -1,0 +1,493 @@
+﻿@using Domain.Shared
+@using Microsoft.EntityFrameworkCore
+@using Web.Client.Data
+@using Web.Client.Models
+
+@inject IDbContextFactory<ApplicationDbContext> DbContextFactory
+@inject ILogger<TicketManager> Logger
+@implements IDisposable
+
+<div class="p-4 animate-fade-in">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="d-flex align-items-center gap-3">
+            <div class="bg-primary-subtle text-primary rounded p-2.5 d-inline-flex align-items-center justify-content-center shadow-sm">
+                <span class="bi bi-ticket-perforated fs-3"></span>
+            </div>
+            <div>
+                <h1 class="h3 fw-bold mb-0">@Title</h1>
+                <small class="text-secondary">@Subtitle</small>
+            </div>
+        </div>
+        <div>
+            <button class="btn btn-primary d-flex align-items-center gap-2 shadow-sm fw-semibold" @onclick="OpenCreateModal">
+                <span class="bi bi-plus-circle"></span>
+                <span>New Ticket</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Search, Filter & Sort Control Panel -->
+    <div class="card border-0 shadow-sm p-3 mb-4 bg-light">
+        <div class="row g-3 align-items-end">
+            <div class="col-md-3">
+                <label class="form-label small fw-bold text-secondary text-uppercase">Search</label>
+                <div class="input-group">
+                    <span class="input-group-text bg-white border-end-0"><span class="bi bi-search"></span></span>
+                    <input type="text" class="form-control border-start-0" placeholder="Search title or details..."
+                           value="@_filter.SearchTerm" @oninput="OnSearchInputDebounced" />
+                </div>
+            </div>
+
+            <div class="col-md-2">
+                <label class="form-label small fw-bold text-secondary text-uppercase">Priority</label>
+                <select class="form-select" @bind="_filter.PriorityFilter" @bind:after="ResetPage">
+                    <option value="">Priorities</option>
+                    @foreach (var priority in Enum.GetValues<TicketPriority>())
+                    {
+                        <option value="@priority">@priority.ToString()</option>
+                    }
+                </select>
+            </div>
+
+            <div class="col-md-2">
+                <label class="form-label small fw-bold text-secondary text-uppercase">Status</label>
+                <select class="form-select" @bind="_filter.StatusFilter" @bind:after="ResetPage">
+                    <option value="">Statuses</option>
+                    @foreach (var status in Enum.GetValues<TicketStatus>())
+                    {
+                        <option value="@status">@status.ToString()</option>
+                    }
+                </select>
+            </div>
+
+            <!-- Admin-Only Sync Status Dropdown Filter -->
+            @if (IsAdmin)
+            {
+                <div class="col-md-2">
+                    <label class="form-label small fw-bold text-secondary text-uppercase">Sync Status</label>
+                    <select class="form-select" @bind="_filter.SyncStatusFilter" @bind:after="ResetPage">
+                        <option value="">Sync States</option>
+                        @foreach (var syncStatus in Enum.GetValues<SyncStatus>())
+                        {
+                            <option value="@syncStatus">@syncStatus.ToString()</option>
+                        }
+                    </select>
+                </div>
+            }
+
+            <!-- Sort Column -->
+            <div class="col-md-2">
+                <label class="form-label small fw-bold text-secondary text-uppercase">Sort By</label>
+                <select class="form-select" @bind="_filter.SortColumn" @bind:after="ApplyFilter">
+                    <option value="@nameof(Ticket.CreatedAt)">Created At</option>
+                    <option value="@nameof(Ticket.Priority)">Priority</option>
+                    <option value="@nameof(Ticket.Status)">Status</option>
+                    <option value="@nameof(Ticket.Title)">Title</option>
+                </select>
+            </div>
+
+            <!-- Sort Order -->
+            <div class="col-md-2">
+                <button class="btn btn-outline-secondary w-100 fw-semibold d-flex align-items-center justify-content-center"
+                        @onclick="ToggleSortDirection">
+                    <span class="bi @(_filter.SortDescending ? "bi-sort-down-alt" : "bi-sort-up")"></span>
+                     <span>@(_filter.SortDescending ? "Descending" : "Ascending")</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Data Grid -->
+    <div class="card border-0 shadow-sm overflow-hidden mb-3">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light text-secondary small text-uppercase">
+                    <tr>
+                        <th class="ps-4" style="width: 120px;">ID</th>
+                        <th>Title</th>
+                        <th>Description</th>
+                        <th>Priority</th>
+                        <th>Status</th>
+                        @if (IsAdmin)
+                        {
+                            <th>Sync State</th>
+                        }
+                        <th class="pe-4 text-end" style="width: 140px;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="small">
+                    @if (_tickets.Count == 0)
+                    {
+                        <tr>
+                            <td colspan="@(IsAdmin ? 7 : 6)" class="text-center p-5 text-muted">
+                                <span class="bi bi-folder-x fs-1 d-block mb-2 text-secondary opacity-50"></span>
+                                No tickets found matching those parameters.
+                            </td>
+                        </tr>
+                    }
+                    else
+                    {
+                        @foreach (var ticket in _tickets)
+                        {
+                            <tr class="animate-fade-in">
+                                <td class="ps-4 fw-mono text-secondary">#@ticket.Id.ToString()[..8]</td>
+                                <td class="fw-semibold text-dark">@ticket.Title</td>
+                                <td class="text-truncate text-muted" style="max-width: 250px;">@ticket.Description</td>
+                                <td><TicketPriorityBadge Priority="ticket.Priority" /></td>
+                                <td><TicketStatusBadge Status="ticket.Status" /></td>
+                                @if (IsAdmin)
+                                {
+                                    <td><span class="badge bg-dark-subtle text-dark-emphasis font-monospace">@ticket.SyncStatus</span></td>
+                                }
+                                <td class="pe-4 text-end">
+                                    <!-- Mutation Guard Rule Locks: Admins skip constraints; standard users can mutate only if Open -->
+                                    @if (IsAdmin || ticket.Status == TicketStatus.Open)
+                                    {
+                                        <button class="btn btn-outline-secondary btn-sm border-0" @onclick="() => OpenEditModal(ticket)" title="Edit">
+                                            <span class="bi bi-pencil-square"></span>
+                                        </button>
+                                        <button class="btn btn-outline-danger btn-sm border-0" @onclick="() => PromptDelete(ticket)" title="Delete">
+                                            <span class="bi bi-trash3"></span>
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted small px-2 italic"><span class="bi bi-lock-fill"></span> Locked</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <Pagination @bind-PageNumber="_filter.PageNumber"
+                PageSize="_filter.PageSize"
+                TotalCount="_totalCount"
+                OnPageChanged="ApplyFilter" />
+</div>
+
+@if (_showUpsertModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);" role="dialog">
+        <div class="modal-dialog modal-dialog-centered modal-lg" role="document">
+            <div class="modal-content border-0 shadow-lg">
+                <div class="modal-header bg-light">
+                    <h5 class="modal-title fw-bold text-dark">@(_ticketEditedId.HasValue ? "Edit" : "Open") Ticket</h5>
+                    <button type="button" class="btn-close" @onclick="CloseUpsertModal" aria-label="Close"></button>
+                </div>
+
+                <EditForm Model="_inputModel" OnValidSubmit="Submit">
+                    <DataAnnotationsValidator />
+
+                    <div class="modal-body py-4">
+                        <div class="mb-3">
+                            <label class="form-label small fw-bold text-secondary text-uppercase">Title</label>
+                            <InputText class="form-control" placeholder="Summary subject headline..." @bind-Value="_inputModel.Title" />
+                            <ValidationMessage For="() => _inputModel.Title" class="text-danger small mt-1" />
+                        </div>
+
+                        @if (IsAdmin)
+                        {
+                            <div class="row g-3 mb-3">
+                                <div class="col-md-6">
+                                    <label class="form-label small fw-bold text-secondary text-uppercase">Priority</label>
+                                    <InputSelect class="form-select" @bind-Value="_inputModel.Priority">
+                                        @foreach (var val in Enum.GetValues<TicketPriority>())
+                                        {
+                                            <option value="@val">@val.ToString()</option>
+                                        }
+                                    </InputSelect>
+                                </div>
+
+                                <div class="col-md-6">
+                                    <label class="form-label small fw-bold text-secondary text-uppercase">Status</label>
+                                    <InputSelect class="form-select" @bind-Value="_inputModel.Status">
+                                        @foreach (var val in Enum.GetValues<TicketStatus>())
+                                        {
+                                            <option value="@val">@val.ToString()</option>
+                                        }
+                                    </InputSelect>
+                                </div>
+                            </div>
+                        }
+
+                        <div class="mb-0">
+                            <label class="form-label small fw-bold text-secondary text-uppercase">Description</label>
+                            <InputTextArea class="form-control" rows="5" placeholder="Provide log metrics or requirements explicitly..." @bind-Value="_inputModel.Description" />
+                            <ValidationMessage For="() => _inputModel.Description" class="text-danger small mt-1" />
+                        </div>
+                    </div>
+
+                    <div class="modal-footer bg-light border-0">
+                        <button type="button" class="btn btn-outline-secondary fw-semibold px-4" @onclick="CloseUpsertModal">
+                            Cancel
+                        </button>
+                        <button type="submit" class="btn btn-primary fw-semibold px-4 d-flex align-items-center gap-2">
+                            <span class="bi bi-check-circle-fill"></span> Save
+                        </button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public string Title { get; set; } = "Tickets";
+    [Parameter, EditorRequired] public string Subtitle { get; set; } = "Manage tickets";
+    [Parameter] public bool IsAdmin { get; set; } = false;
+
+    private List<Ticket> _tickets = [];
+
+    private TicketModel _inputModel = new();
+    private bool _showUpsertModal = false;
+    private bool _showDeleteModal = false;
+    private Guid? _ticketEditedId = null;
+    private Ticket? _ticketToDelete = null;
+
+    private TicketFilterModel _filter = new();
+    private int _totalCount = 0;
+    private int _totalPages = 1;
+    private CancellationTokenSource? _debounceCts;
+
+    public void Dispose()
+    {
+        _debounceCts?.Cancel();
+        _debounceCts?.Dispose();
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (OperatingSystem.IsBrowser())
+        {
+            await ApplyFilter();
+        }
+    }
+
+    private void CancelDelete()
+    {
+        _showDeleteModal = false;
+        _ticketToDelete = null;
+    }
+
+    private async Task ConfirmDelete()
+    {
+        if (_ticketToDelete is null) return;
+
+        using var context = await DbContextFactory.CreateDbContextAsync();
+        var ticket = await context.Tickets.FindAsync(_ticketToDelete.Id);
+
+        if (ticket is not null)
+        {
+            // Prevent post-open deletion
+            if (!IsAdmin && ticket.Status != TicketStatus.Open) return;
+
+            ticket.IsDeleted = true;
+            ticket.SyncStatus = SyncStatus.PendingDelete;
+            ticket.UpdatedAt = DateTime.UtcNow;
+            await context.SaveChangesAsync();
+        }
+
+        _showDeleteModal = false;
+        _ticketToDelete = null;
+        await ApplyFilter();
+
+    }
+
+    private void CloseUpsertModal()
+    {
+        _showUpsertModal = false;
+        _ticketEditedId = null;
+    }
+
+    private async Task NavigateToPage(int page)
+    {
+        if (page < 1 || page > _totalPages) return;
+        _filter.PageNumber = page;
+        await ApplyFilter();
+    }
+
+    private async Task OnSearchInputDebounced(ChangeEventArgs e)
+    {
+        _filter.SearchTerm = e.Value?.ToString() ?? string.Empty;
+
+        _debounceCts?.Cancel();
+        _debounceCts?.Dispose();
+
+        _debounceCts = new CancellationTokenSource();
+        var token = _debounceCts.Token;
+
+        try
+        {
+            await Task.Delay(300, token);
+
+            if (!token.IsCancellationRequested)
+            {
+                await ResetPage();
+            }
+        }
+        catch (TaskCanceledException)
+        {
+            // A new keystroke cancelled this execution.
+        }
+    }
+
+    private void OpenCreateModal()
+    {
+        _ticketEditedId = null;
+        _inputModel = new TicketModel();
+        _showUpsertModal = true;
+    }
+
+    private void OpenEditModal(Ticket ticket)
+    {
+        if (!IsAdmin && ticket.Status != TicketStatus.Open) return;
+
+        _ticketEditedId = ticket.Id;
+        _inputModel = new TicketModel
+        {
+            Title = ticket.Title,
+            Description = ticket.Description
+        };
+        _showUpsertModal = true;
+    }
+
+    private void PromptDelete(Ticket ticket)
+    {
+        if (!IsAdmin && ticket.Status != TicketStatus.Open) return;
+
+        _ticketToDelete = ticket;
+        _showDeleteModal = true;
+    }
+
+    private async Task ResetPage()
+    {
+        _filter.PageNumber = 1;
+        await ApplyFilter();
+    }
+
+    private async Task Submit()
+    {
+        using var context = await DbContextFactory.CreateDbContextAsync();
+        var now = DateTime.UtcNow;
+
+        if (_ticketEditedId.HasValue)
+        {
+            var existing = await context.Tickets.FindAsync(_ticketEditedId.Value);
+            if (existing is not null)
+            {
+                // Deny update if ticket has been processed
+                if (!IsAdmin && existing.Status != TicketStatus.Open)
+                {
+                    CloseUpsertModal();
+                    return;
+                }
+
+                existing.Description = _inputModel.Description.Trim();
+                existing.Title = _inputModel.Title.Trim();
+                existing.UpdatedAt = now;
+                existing.SyncStatus = SyncStatus.PendingUpdate;
+
+                if (IsAdmin)
+                {
+                    existing.Priority = _inputModel.Priority;
+                    existing.Status = _inputModel.Status;
+                }
+
+                await context.SaveChangesAsync();
+
+                _ticketEditedId = null;
+                _showUpsertModal = false;
+                await ApplyFilter();
+            }
+            else
+            {
+                _ticketEditedId = null;
+                _showUpsertModal = false;
+
+                // Optional: Re-run filter just in case the ticket was deleted
+                await ApplyFilter();
+            }
+        }
+        else
+        {
+            var newTicket = new Ticket
+            {
+                Id = Guid.NewGuid(),
+                Title = _inputModel.Title.Trim(),
+                Description = _inputModel.Description.Trim(),
+                Priority = IsAdmin ? _inputModel.Priority : TicketPriority.Low,
+                Status = TicketStatus.Open,
+                CreatedAt = now,
+                UpdatedAt = now,
+                IsDeleted = false,
+                SyncStatus = SyncStatus.PendingInsert
+            };
+
+            context.Tickets.Add(newTicket);
+            await context.SaveChangesAsync();
+
+            _showUpsertModal = false;
+            _filter.Reset();
+            await ApplyFilter();
+        }
+    }
+
+    private async Task ToggleSortDirection()
+    {
+        _filter.SortDescending = !_filter.SortDescending;
+        await ApplyFilter();
+    }
+
+    private async Task ApplyFilter()
+    {
+        using var context = await DbContextFactory.CreateDbContextAsync();
+
+        IQueryable<Ticket> query = context.Tickets
+            .Where(t => t.SyncStatus != SyncStatus.PendingDelete && !t.IsDeleted);
+
+        if (!string.IsNullOrWhiteSpace(_filter.SearchTerm))
+        {
+            var matchTerm = $"%{_filter.SearchTerm.Trim()}%";
+            // EF.Functions.Like provides high-performance, index-friendly case-insensitive searches in SQLite
+            query = query.Where(t => EF.Functions.Like(t.Title, matchTerm) || EF.Functions.Like(t.Description, matchTerm));
+        }
+
+        if (_filter.PriorityFilter.HasValue)
+        {
+            query = query.Where(t => t.Priority == _filter.PriorityFilter.Value);
+        }
+        if (_filter.StatusFilter.HasValue)
+        {
+            query = query.Where(t => t.Status == _filter.StatusFilter.Value);
+        }
+        if (_filter.SyncStatusFilter.HasValue)
+        {
+            query = query.Where(t => t.SyncStatus == _filter.SyncStatusFilter.Value);
+        }
+
+        query = _filter.SortColumn switch
+        {
+            nameof(Ticket.Title) => _filter.SortDescending ? query.OrderByDescending(t => t.Title) : query.OrderBy(t => t.Title),
+            nameof(Ticket.Priority) => _filter.SortDescending ? query.OrderByDescending(t => t.Priority) : query.OrderBy(t => t.Priority),
+            nameof(Ticket.Status) => _filter.SortDescending ? query.OrderByDescending(t => t.Status) : query.OrderBy(t => t.Status),
+            _ => _filter.SortDescending ? query.OrderByDescending(t => t.CreatedAt) : query.OrderBy(t => t.CreatedAt)
+        };
+
+        _totalCount = query.Count();
+        _totalPages = (int)Math.Ceiling((double)_totalCount / _filter.PageSize);
+        if (_totalPages < 1) _totalPages = 1;
+
+        if (_filter.PageNumber > _totalPages) _filter.PageNumber = _totalPages;
+
+        _tickets = query
+        .Skip((_filter.PageNumber - 1) * _filter.PageSize)
+        .Take(_filter.PageSize)
+        .ToList();
+
+        StateHasChanged();
+    }
+}

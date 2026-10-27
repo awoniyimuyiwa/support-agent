@@ -67,9 +67,9 @@ public static class ModelMappers
                 model.Behavior);
     }
 
-    extension(DocumentVersionSyncItem model)
+    extension(CreateDocumentVersionRequestItem model)
     {
-        public DocumentVersionSyncItemDto ToSyncItemDto(IReadOnlyDictionary<Guid, long> documentIdMap) =>
+        public CreateDocumentVersionDto ToDto(IReadOnlyDictionary<Guid, long> documentIdMap) =>
             new(
                 model.Id,
                 model.ContentHash,
@@ -80,17 +80,25 @@ public static class ModelMappers
                 },
                 model.FileId,
                 model.FileType,
-                model.CreatedAt,
-                model.UpdatedAt,
-                model.ConcurrencyStamp);
+                model.CreatedAt);
     }
 
     extension(DocumentVersionSyncRequest model)
     {
-        public DocumentVersionSyncDto ToDto(IReadOnlyDictionary<Guid, long> docuemntIdMap) =>
+        public DocumentVersionSyncDto Dto =>
             new(
-                [.. model.Items.Select(dv => dv.ToSyncItemDto(docuemntIdMap))],
+                [.. model.Items.Select(dv => dv.Dto)],
                 model.Behavior);
+    }
+
+    extension(DocumentVersionSyncRequestItem model)
+    {
+        public DocumentVersionSyncItemDto Dto =>
+            new(
+                model.Id,
+                model.UpdatedAt,
+                model.ConcurrencyStamp,
+                model.IsDeleted);
     }
 
     extension(GetBackgroundJobRequest model)

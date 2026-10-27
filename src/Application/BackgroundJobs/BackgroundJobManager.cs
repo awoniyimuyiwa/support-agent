@@ -20,8 +20,7 @@ class BackgroundJobManager(
         uint maxRetries,
         Guid? sourceId = null,
         BackgroundJobPriority priority = BackgroundJobPriority.Normal,
-        DateTimeOffset? scheduledFor = null,
-        CancellationToken cancellationToken = default) where T : BackgroundJobHandlerDto
+        DateTimeOffset? scheduledFor = null) where T : BackgroundJobPayload
     {
         var job = new BackgroundJob
         {

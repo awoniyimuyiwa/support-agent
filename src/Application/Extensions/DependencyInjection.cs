@@ -16,10 +16,11 @@ public static class DependencyInjection
         public IServiceCollection AddApplicationServices()
         {
             services
+                .AddScoped<IDocumentCategoryService, DocumentCategoryService>()
                 .AddScoped<IDocumentService, DocumentService>()
                 .AddScoped<ITicketService, TicketService>()
                 .AddScoped<IBackgroundJobManager, BackgroundJobManager>()
-                .AddBackgroundJobHandlers(); // Calls the inner block method seamlessly
+                .AddBackgroundJobHandlers();
 
             return services;
         }

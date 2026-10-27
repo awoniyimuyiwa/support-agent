@@ -1,7 +1,6 @@
 ﻿@typeparam TItem
 @typeparam TKey where TKey : notnull
 
-@using System.Collections.Immutable
 @using System.Reflection
 @using System.Text.RegularExpressions
 @using Web.Client.Models
@@ -101,7 +100,7 @@
     public bool IsOpen { get; set; }
 
     [Parameter]
-    public ImmutableList<(TItem Client, TItem Server)> Conflicts { get; set; } = ImmutableList<(TItem Client, TItem Server)>.Empty;
+    public IReadOnlyCollection<(TItem Client, TItem Server)> Conflicts { get; set; } = Array.Empty<(TItem Client, TItem Server)>();
 
     [Parameter]
     public string DescriptionText { get; set; } = "Values differ across attributes. Choose which specific values to preserve for each row attribute field:";
@@ -117,7 +116,7 @@
 
     // Returns a nested look dictionary mapping [RecordKey -> [PropertyName -> ChosenSide]]
     [Parameter] 
-    public EventCallback<Dictionary<TKey, Dictionary<string, ResolutionChoice>>> OnResolve { get; set; }
+    public EventCallback<IReadOnlyDictionary<TKey, IReadOnlyDictionary<string, ResolutionChoice>>> OnResolve { get; set; }
 
     private int _currentIndex = 0;
 
@@ -126,7 +125,7 @@
     private List<FieldDiff> _currentFields = new();
 
     // The master nested tracking map matrix
-    private readonly Dictionary<TKey, Dictionary<string, ResolutionChoice>> _masterResolutionMap = new();
+    private readonly Dictionary<TKey, IReadOnlyDictionary<string, ResolutionChoice>> _masterResolutionMap = new();
 
     private Dictionary<string, ResolutionChoice> _fieldChoices = new();
 
@@ -184,7 +183,7 @@
         if (_currentIndex >= Conflicts.Count) { return; }
 
         // Destructure the coupled pair cleanly right from your tuple index
-        var (clientItem, serverItem) = Conflicts[_currentIndex];
+        var (clientItem, serverItem) = Conflicts.ElementAt(_currentIndex);
         _activeConflictItem = clientItem;
 
         var properties = typeof(TItem).GetProperties(BindingFlags.Public | BindingFlags.Instance);

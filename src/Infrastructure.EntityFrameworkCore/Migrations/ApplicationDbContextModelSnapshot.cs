@@ -570,6 +570,10 @@ namespace Infrastructure.EntityFrameworkCore.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("ContentHash")
+                        .IsUnique()
+                        .HasFilter("\"IsDeleted\" = false");
+
                     b.HasIndex("ExternalId")
                         .IsUnique();
 
@@ -578,9 +582,6 @@ namespace Infrastructure.EntityFrameworkCore.Migrations
 
                     b.HasIndex("CreatedAt", "Id")
                         .HasDatabaseName("IX_DocumentVersions_CursorPagination");
-
-                    b.HasIndex("DocumentId", "ContentHash")
-                        .IsUnique();
 
                     b.HasIndex("DocumentId", "CreatedAt")
                         .IsDescending(false, true);

@@ -226,16 +226,23 @@ class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : Ide
             documentVersion.Property(dv => dv.FileId)
              .Metadata.SetAfterSaveBehavior(PropertySaveBehavior.Throw);
 
-            documentVersion.HasIndex(dv => dv.FileId)
-            .IsUnique();
-
             // Optimizes the subquery computing the latest active version via Max(CreatedAt).
             // Not unique to avoid collision when multiple versions are synced at the exact same time.
             // Sorted descending to give the database instant O(1) access to the maximum timestamp leaf.
             documentVersion.HasIndex(dv => new { dv.DocumentId, dv.CreatedAt })    
             .IsDescending(false, true); // (DocumentId ASC, CreatedAt DESC)
 
-            documentVersion.HasIndex(dv => new { dv.DocumentId, dv.ContentHash })
+            // Enforces global uniqueness across all active document versions to prevent duplicate uploads.
+            // By filtering out soft-deleted records, PostgreSQL allows 
+            // users to re-upload new versions whose the content hash matches that of a soft deleted version via INSERT statements 
+            documentVersion.HasIndex(dv => dv.ContentHash)
+            .HasFilter("\"IsDeleted\" = false")    
+            .IsUnique();
+
+            // Unfiltered because an insertion-only creation logic is used and every new version gets a unique GUID FileId
+            // when a client calls the API to get FileId and SAS URLs. It also serves as hard database-level 
+            // firewall to intercept and block duplicate record insertion attempts resulting from network retries.
+            documentVersion.HasIndex(dv => dv.FileId)
             .IsUnique();
         });
 

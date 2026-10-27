@@ -9,6 +9,5 @@ public interface IBackgroundJobManager
         uint maxRetries,
         Guid? sourceId,
         BackgroundJobPriority priority = BackgroundJobPriority.Normal,
-        DateTimeOffset? scheduledFor = null,
-        CancellationToken cancellationToken = default) where T : BackgroundJobHandlerDto; 
+        DateTimeOffset? scheduledFor = null) where T : BackgroundJobPayload; 
 }

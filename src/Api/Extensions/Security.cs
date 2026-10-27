@@ -291,8 +291,7 @@ public static class Security
         }
 
         /// <summary>
-        /// Decrypts and deserializes a protected string into a synchronization <see cref="Cursor"/> 
-        /// utilizing the specific cryptographic purpose of the DeltaModel payload wrapper.
+        /// Decrypts and deserializes a protected string into a <see cref="Cursor"/> 
         /// </summary>
         /// <param name="protector">The data protector used for decryption.</param>
         /// <returns>A valid <see cref="Cursor"/> instance, or null if the input is invalid or tampered with.</returns>

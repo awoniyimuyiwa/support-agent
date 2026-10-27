@@ -1,0 +1,13 @@
+﻿@page "/admin/tickets"
+@rendermode InteractiveAuto
+@attribute [Authorize(Roles = Domain.Shared.Constants.AdminRoleName)]
+@layout MainLayout
+
+@using Microsoft.AspNetCore.Authorization
+@using Web.Client.Components
+
+<CustomPageTitle Value="Tickets" />
+
+<TicketManager Title="Tickets"
+               Subtitle="Log, modify, and track tickets"
+               IsAdmin="true" />

@@ -11,82 +11,153 @@ public class ApiClient(HttpClient httpClient)
     /// Calls server to set the anti-forgery token cookie
     /// </summary>
     /// <param name="cancellationToken"></param>
-    public async Task<HttpResponseMessage> GetAntiforgeryToken(
-        CancellationToken cancellationToken = default)
-    {
-        return await httpClient.GetAsync(
+    public Task<HttpResponseMessage> GetAntiforgeryToken(
+        CancellationToken cancellationToken = default) => httpClient.GetAsync(
             "v1/auth/antiforgery-token",
             cancellationToken);
-    }
-
+   
     /// <summary>
-    /// Fetches the current user authentication context and permission maps.
+    /// Fetches the current user authentication context and permission maps
     /// </summary>
-    public async Task<UserInfoRespone?> GetUserInfo(
-        CancellationToken cancellationToken = default)
-    {
-        return await httpClient.GetFromJsonAsync<UserInfoRespone>(
+    public Task<UserInfoRespone?> GetUserInfo(
+        CancellationToken cancellationToken = default) => httpClient.GetFromJsonAsync<UserInfoRespone>(
             "v1/account/info",
             cancellationToken);
-    }
 
-    public async Task<HttpResponseMessage> GetUserInfoResponse(
-        CancellationToken cancellationToken = default)
-    {
-        return await httpClient.GetAsync( 
+    public Task<HttpResponseMessage> GetUserInfoResponse(
+        CancellationToken cancellationToken = default) => httpClient.GetAsync( 
             "v1/account/info", 
             cancellationToken);
-    }
 
-    public async Task<WeatherForecastSyncItem[]> StreamWeatherForecasts(
-        int maxItems = 10, 
-        CancellationToken cancellationToken = default)
-    {
-        List<WeatherForecastSyncItem>? forecasts = null;
-
-        await foreach (var forecast in httpClient.GetFromJsonAsAsyncEnumerable<WeatherForecastSyncItem>("v1/weather-forecasts", cancellationToken))
-        {
-            if (forecasts?.Count >= maxItems)
-            {
-                break;
-            }
-            if (forecast is not null)
-            {
-                forecasts ??= [];
-                forecasts.Add(forecast);
-            }
-        }
-
-        return forecasts?.ToArray() ?? [];
-    }
-
-    public async Task<HttpResponseMessage> Login(
+    public Task<HttpResponseMessage> Login(
         LoginModel loginModel,
-        CancellationToken cancellationToken = default)
-    {
-        return await httpClient.PostAsJsonAsync(
+        CancellationToken cancellationToken = default) => httpClient.PostAsJsonAsync(
             "v1/auth/login?useCookies=true",
             loginModel,
             cancellationToken);
-    }
 
-    public async Task<HttpResponseMessage> Logout(
-        CancellationToken cancellationToken = default)
-    {
-        return await httpClient.PostAsync(
+    public Task<HttpResponseMessage> Logout(
+        CancellationToken cancellationToken = default) =>  httpClient.PostAsync(
             "v1/auth/logout",
             null,
             cancellationToken);
-    }
+    
+    /// <summary>
+    /// Fetches document adjustments
+    /// </summary>
+    public Task<HttpResponseMessage> StreamDocumentDeltas(
+        string? next, 
+        CancellationToken token = default) => StreamDeltas(
+            "v1/admin/documents", 
+            next,
+            token);
 
     /// <summary>
-    /// Fetches incremental ticket adjustments and tombstones from the server using an opaque encrypted cursor token.
+    /// Fetches document category adjustments
     /// </summary>
-    public async Task<HttpResponseMessage> StreamTicketDeltas(
+    public Task<HttpResponseMessage> StreamDocumentCategoryDeltas(
         string? next,
-        CancellationToken token = default)
+        CancellationToken token = default) => StreamDeltas(
+            "v1/admin/document-categories",
+            next,
+            token);
+
+    /// <summary>
+    /// Fetches document version adjustments
+    /// </summary>
+    public Task<HttpResponseMessage> StreamDocumentVersionDeltas(
+        string? next,
+        CancellationToken token = default) => StreamDeltas(
+            "v1/admin/document-versions", 
+            next, 
+            token);
+
+    /// <summary>
+    /// Fetches ticket adjustments that belong to the user
+    /// </summary>
+    public Task<HttpResponseMessage> StreamTicketDeltas(
+        string? next,
+        CancellationToken token = default) => StreamDeltas(
+            "v1/tickets",
+            next,
+            token);
+
+    /// <summary>
+    /// Fetches all ticket adjustments
+    /// </summary>
+    public Task<HttpResponseMessage> StreamAdminTicketDeltas(
+        string? next,
+        CancellationToken token = default) => StreamDeltas(
+            "v1/admin/tickets",
+            next,
+            token);
+
+    /// <summary>
+    /// Syncs documents
+    /// </summary>
+    public Task<HttpResponseMessage> SyncDocuments(
+        DocumentSyncRequest batch,
+        Guid idempotencyKey,
+        CancellationToken cancellationToken = default) => Sync(
+            "v1/admin/documents",
+            batch,
+            idempotencyKey,
+            cancellationToken);
+
+    /// <summary>
+    /// Syncs document categories
+    /// </summary>
+    public Task<HttpResponseMessage> SyncDocumentCategories(
+        DocumentCategorySyncRequest batch,
+        Guid idempotencyKey,
+        CancellationToken cancellationToken = default) => Sync(
+            "v1/admin/document-categories",
+            batch,
+            idempotencyKey,
+            cancellationToken);
+
+    /// <summary>
+    /// Syncs document versions
+    /// </summary>
+    public Task<HttpResponseMessage> SyncDocumentVersions(
+        DocumentVersionSyncRequest batch,
+        Guid idempotencyKey,
+        CancellationToken cancellationToken = default) => Sync(
+            "v1/admin/document-versions",
+            batch,
+            idempotencyKey,
+            cancellationToken);
+
+    /// <summary>
+    /// Syncs tickets that belong to only the user
+    /// </summary>
+    public Task<HttpResponseMessage> SyncTickets(
+        TicketSyncRequest batch,
+        Guid idempotencyKey,
+        CancellationToken cancellationToken = default) => Sync(
+            "v1/tickets",
+            batch, 
+            idempotencyKey, 
+            cancellationToken);
+
+    /// <summary>
+    /// Syncs all tickets
+    /// </summary>
+    public Task<HttpResponseMessage> SyncAdminTickets(
+        FullTicketSyncRequest batch,
+        Guid idempotencyKey,
+        CancellationToken cancellationToken = default) => Sync(
+            "v1/admin/tickets",
+            batch,
+            idempotencyKey,
+            cancellationToken);
+
+    private async Task<HttpResponseMessage> StreamDeltas(
+        string path,
+        string? next,
+        CancellationToken token)
     {
-        var url = $"v1/tickets/stream-deltas?pageSize={Domain.Shared.Constants.MaxPageSize}";
+        var url = $"{path}/stream-deltas?pageSize={Domain.Shared.Constants.MaxPageSize}";
 
         if (!string.IsNullOrWhiteSpace(next))
         {
@@ -97,56 +168,19 @@ public class ApiClient(HttpClient httpClient)
         return await httpClient.GetAsync(url, token);
     }
 
-    /// <summary>
-    /// Fetches incremental weather adjustments and tombstones from the server using an opaque encrypted cursor token.
-    /// </summary>
-    public async Task<HttpResponseMessage> StreamWeatherForecastDeltas(
-        string? next,
-        CancellationToken cancellationToken = default)
-    {
-        var url = $"v1/weather-forecasts/stream-deltas?pageSize={Domain.Shared.Constants.MaxPageSize}";
-
-        if (!string.IsNullOrWhiteSpace(next))
-        {
-            url += $"&next={Uri.EscapeDataString(next)}";
-        }
-
-        return await httpClient.GetAsync(url, cancellationToken);
-    }
-
-    public async Task<HttpResponseMessage> SyncWeatherForecasts(
-        WeatherForecastSyncRequest batch,
+    private async Task<HttpResponseMessage> Sync<TBody>(
+        string endpoint,
+        TBody batch,
         Guid idempotencyKey,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken)
     {
-        var request = new HttpRequestMessage(
-            HttpMethod.Post,
-            "v1/weather-forecasts/sync")
+        var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
         {
             Content = JsonContent.Create(batch)
         };
 
         request.Headers.Add(
-            Constants.IdempotencyKeyHeaderName, 
-            idempotencyKey.ToString());
-
-        return await httpClient.SendAsync(request, cancellationToken);
-    }
-
-    public async Task<HttpResponseMessage> SyncTickets(
-        TicketSyncRequest batch,
-        Guid idempotencyKey,
-        CancellationToken cancellationToken = default)
-    {
-        var request = new HttpRequestMessage(
-            HttpMethod.Post,
-            "v1/tickets/sync")
-        {
-            Content = JsonContent.Create(batch)
-        };
-
-        request.Headers.Add(
-            Constants.IdempotencyKeyHeaderName, 
+            Constants.IdempotencyKeyHeaderName,
             idempotencyKey.ToString());
 
         return await httpClient.SendAsync(request, cancellationToken);

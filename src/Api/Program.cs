@@ -8,7 +8,6 @@ using Api.AI;
 using Api.Attributes;
 using Api.BackgroundServices;
 using Api.Contracts.Extensions;
-using Api.Contracts.Models.V1;
 using Api.Contracts.Options;
 using Api.Controllers.V1;
 using Api.Conventions;
@@ -24,6 +23,8 @@ using Application.Extensions;
 using Asp.Versioning;
 using Azure.Core;
 using Azure.Identity;
+using Azure.Storage.Blobs;
+using Azure.Storage.Blobs.Models;
 using Domain;
 using Infrastructure.EntityFrameworkCore.Extensions;
 using MaxMind.GeoIP2;
@@ -102,7 +103,7 @@ if (!string.IsNullOrWhiteSpace(appConfigConnectionString))
 // Inside your Program.cs file
 string appName = !string.IsNullOrWhiteSpace(builder.Configuration.GetValue<string>("AppName"))
     ? builder.Configuration.GetValue<string>("AppName")!
-    : throw new InvalidOperationException("AppHost Boot Error: Setting 'AppName' must be explicitly specified in configurations and cannot be empty or whitespace.");
+    : throw new InvalidOperationException("Setting 'AppName' must be explicitly specified in configurations and cannot be empty or whitespace.");
 
 builder.Services.AddOptions<AiOptions>()
     .Bind(builder.Configuration.GetSection(AiOptions.SectionName))
@@ -259,6 +260,7 @@ builder.Services.AddStackExchangeRedisCache(_ => { });
 // Let Aspire initialize the core telemetry, metrics, and connection pools natively.
 builder.AddAzureBlobServiceClient("blobs");
 
+
 builder.Services.AddSingleton(sp =>
 {
     return new GovernanceKernel(new GovernanceOptions
@@ -320,6 +322,7 @@ builder.AddEntityFrameworkServices();
 
 builder.Services.AddApplicationServices();
 
+builder.Services.AddScoped<IFileStorageService, FileStorageService>();
 
 // Configure distributed lock provider here, SQL server, Postgresql or Redis. Zookeeper requires ZooKeeperNetEx library
 builder.Services.AddSingleton<IDistributedLockProvider>(
@@ -475,6 +478,19 @@ if (!string.IsNullOrWhiteSpace(appConfigConnectionString))
     app.UseAzureAppConfiguration();
 }
 
+if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("blob")))
+{
+    app.Lifetime.ApplicationStarted.Register(async () =>
+    {
+        var webAddress = builder.Configuration["WEB_HTTPS"]
+        ?? builder.Configuration["WEB_HTTP"]
+        ?? throw new InvalidOperationException("Setting WEB_HTTPS or WEB_HTTP must be explicitly specified in configurations and cannot be empty or whitespace.");
+
+        var blobClient = app.Services.GetRequiredService<BlobServiceClient>();
+        await EnsureBlobStorageCorsAsync(blobClient, webAddress!);
+    });
+}
+
 // Clear platform signatures dynamically regardless of the underlying OS
 app.Use(async (context, next) =>
 {
@@ -607,29 +623,27 @@ v1Group.AddEndpointFilter<AntiforgeryFilter>()
 app.MapControllers()
     .RequireRateLimiting(Constants.UserRateLimitPolicyName);
 
-string[] summaries = ["Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"];
-v1Group.MapGet("/weather-forecasts", (TimeProvider timeProvider) =>
-{
-    var dateTime = timeProvider.GetUtcNow().DateTime;
-
-    var forecast = Enumerable
-        .Range(1, 5)
-        .Select(index => new WeatherForecastSyncItem
-        (
-            Guid.NewGuid(),
-            // Now loops cleanly over the static local variable tracking snapshot
-            DateOnly.FromDateTime(dateTime.AddDays(index)),
-            summaries[Random.Shared.Next(summaries.Length)],
-            Random.Shared.Next(-20, 55),
-            Guid.NewGuid().ToString(),
-            false
-        ))
-        .ToArray();
-
-    return forecast;
-})
-.WithName("GetWeatherForecast")
-.WithTags("WeatherForecasts");
-
-
 app.Run();
+
+static async Task EnsureBlobStorageCorsAsync(
+    BlobServiceClient client,
+    string webAddress)
+{
+    var serviceProperties = await client.GetPropertiesAsync();
+
+    serviceProperties.Value.Cors.Clear();
+    serviceProperties.Value.Cors.Add(new BlobCorsRule
+    {
+        // Blazor client address
+        AllowedOrigins = webAddress, 
+
+        // Required for browser direct SAS streaming
+        AllowedMethods = "PUT",                     
+        AllowedHeaders = "x-ms-*,content-type",
+        ExposedHeaders = "x-ms-*",
+        MaxAgeInSeconds = 3600
+    });
+
+    await client.SetPropertiesAsync(serviceProperties.Value);
+}
+

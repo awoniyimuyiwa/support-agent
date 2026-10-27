@@ -3,7 +3,7 @@ using System.Text.Json;
 
 namespace Application.BackgroundJobs.Handlers;
 
-abstract class BackgroundJobHandler<T> : IBackgroundJobHandler where T : BackgroundJobHandlerDto
+abstract class BackgroundJobHandler<T> : IBackgroundJobHandler where T : BackgroundJobPayload
 {
     public async Task Handle(
         Guid id,

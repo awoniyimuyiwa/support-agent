@@ -1,0 +1,341 @@
+﻿@page "/admin/document-categories"
+@rendermode InteractiveAuto
+@attribute [Authorize(Roles = Constants.AdminRoleName)]
+@layout MainLayout
+
+@using Domain.Shared
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@using Web.Client.Components
+@using Web.Client.Data
+@using Web.Client.Models
+
+@inject IDbContextFactory<ApplicationDbContext> DbContextFactory
+@inject ILogger<DocumentCategories> Logger
+@implements IDisposable
+
+<CustomPageTitle Value="Document Categories" />
+
+<div class="p-4 animate-fade-in">
+    <!-- Header Layout Block -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="d-flex align-items-center gap-3">
+            <div class="bg-info-subtle text-info-emphasis rounded p-2.5 d-inline-flex align-items-center justify-content-center shadow-sm">
+                <span class="bi bi-tags-fill fs-3"></span>
+            </div>
+            <div>
+                <h1 class="h3 fw-bold mb-0">Document Categories</h1>
+                <small class="text-secondary">Organize and partition files, notes, and documentation templates</small>
+            </div>
+        </div>
+        <div>
+            <button class="btn btn-primary d-flex align-items-center gap-2 shadow-sm fw-semibold" @onclick="OpenCreateModal">
+                <span class="bi bi-plus-circle"></span>
+                <span>New Category</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Search, Filter & Sorting Panel Control Bar -->
+    <div class="card border-0 shadow-sm p-3 mb-4 bg-light">
+        <div class="row g-3 align-items-end">
+            <div class="col-md-4">
+                <label class="form-label small fw-bold text-secondary text-uppercase">Search</label>
+                <div class="input-group">
+                    <span class="input-group-text bg-white border-end-0"><span class="bi bi-search"></span></span>
+                    <input type="text" class="form-control border-start-0" placeholder="Search by name or description..."
+                           value="@_filter.SearchTerm" @oninput="OnSearchInputDebounced" />
+                </div>
+            </div>
+
+            <!-- Administrative Sync Status Filter Dropdown -->
+            <div class="col-md-3">
+                <label class="form-label small fw-bold text-secondary text-uppercase">Sync Status</label>
+                <select class="form-select" @bind="_filter.SyncStatusFilter" @bind:after="ResetPage">
+                    <option value="">All Sync States</option>
+                    @foreach (var syncStatus in Enum.GetValues<SyncStatus>())
+                    {
+                        <option value="@syncStatus">@syncStatus.ToString()</option>
+                    }
+                </select>
+            </div>
+
+            <!-- Sorting Selector -->
+            <div class="col-md-3">
+                <label class="form-label small fw-bold text-secondary text-uppercase">Sort By</label>
+                <select class="form-select" @bind="_filter.SortColumn" @bind:after="ApplyFilter">
+                    <option value="@nameof(DocumentCategory.Name)">Category Name</option>
+                    <option value="@nameof(DocumentCategory.CreatedAt)">Created Date</option>
+                    <option value="@nameof(DocumentCategory.UpdatedAt)">Updated Date</option>
+                </select>
+            </div>
+
+            <!-- Sort Direction -->
+            <div class="col-md-2">
+                <button class="btn btn-outline-secondary w-100 fw-semibold d-flex align-items-center justify-content-center gap-2"
+                        @onclick="ToggleSortDirection">
+                    <span class="bi @(_filter.SortDescending ? "bi-sort-down-alt" : "bi-sort-up")"></span>
+                    <span>@(_filter.SortDescending ? "Descending" : "Ascending")</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Data Grid -->
+    <div class="card border-0 shadow-sm overflow-hidden mb-3">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light text-secondary small text-uppercase">
+                    <tr>
+                        <th class="ps-4" style="width: 120px;">ID</th>
+                        <th>Name</th>
+                        <th>Description</th>
+                        <th>Created At</th>
+                        <th>Updated At</th>
+                        <th class="pe-4 text-end" style="width: 140px;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="small">
+                    @if (_categories.Count == 0)
+                    {
+                        <tr>
+                            <td colspan="6" class="text-center p-5 text-muted">
+                                <span class="bi bi-folder-x fs-1 d-block mb-2 text-secondary opacity-50"></span>
+                                No document categories found.
+                            </td>
+                        </tr>
+                    }
+                    else
+                    {
+                        @foreach (var category in _categories)
+                        {
+                            <tr class="animate-fade-in">
+                                <td class="ps-4 fw-mono text-secondary">#@category.Id.ToString()[..8]</td>
+                                <td class="fw-semibold text-dark">@category.Name</td>
+                                <td class="text-muted">@(category.Description ?? "No description provided.")</td>
+                                <td class="text-secondary">@category.CreatedAt.ToLocalTime().ToString("g")</td>
+                                <td class="text-secondary">@category.UpdatedAt.ToLocalTime().ToString("g")</td>
+                                <td class="pe-4 text-end">
+                                    <button class="btn btn-outline-secondary btn-sm border-0" @onclick="() => OpenEditModal(category)" title="Edit">
+                                        <span class="bi bi-pencil-square"></span>
+                                    </button>
+                                    <button class="btn btn-outline-danger btn-sm border-0" @onclick="() => Delete(category.Id)" title="Delete">
+                                        <span class="bi bi-trash3"></span>
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <Pagination @bind-PageNumber="_filter.PageNumber"
+                PageSize="_filter.PageSize"
+                TotalCount="_totalCount"
+                OnPageChanged="ApplyFilter" />
+</div>
+
+@if (_showModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);" role="dialog">
+        <div class="modal-dialog modal-dialog-centered" role="document">
+            <div class="modal-content border-0 shadow-lg">
+                <div class="modal-header bg-light">
+                    <h5 class="modal-title fw-bold text-dark">@(_categoryEditedId.HasValue ? "Edit" : "Create") Document Category</h5>
+                    <button type="button" class="btn-close" @onclick="CloseModal" aria-label="Close"></button>
+                </div>
+                <EditForm Model="_inputModel" OnValidSubmit="Save">
+                    <DataAnnotationsValidator />
+
+                    <div class="modal-body py-4">
+                        <div class="mb-3">
+                            <label for="categoryName" class="form-label small fw-bold text-secondary text-uppercase">Name</label>
+                            <InputText id="categoryName" class="form-control" placeholder="e.g., Legal Templates, Support Guides" @bind-Value="_inputModel.Name" />
+                            <ValidationMessage For="() => _inputModel.Name" class="text-danger small mt-1" />
+                        </div>
+
+                        <div class="mb-0">
+                            <label for="categoryDesc" class="form-label small fw-bold text-secondary text-uppercase">Description (Optional)</label>
+                            <InputTextArea id="categoryDesc" class="form-control" rows="3" placeholder="Provide a summary explaining what documents belong in this category..." @bind-Value="_inputModel.Description" />
+                            <ValidationMessage For="() => _inputModel.Description" class="text-danger small mt-1" />
+                        </div>
+                    </div>
+
+                    <div class="modal-footer bg-light border-0">
+                        <button type="button" class="btn btn-outline-secondary fw-semibold px-4" @onclick="CloseModal">Cancel</button>
+                        <button type="submit" class="btn btn-primary fw-semibold px-4 d-flex align-items-center gap-2">
+                            <span class="bi bi-check-circle-fill"></span> Save
+                        </button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<DocumentCategory> _categories = [];
+    private DocumentCategoryFilterModel _filter = new();
+    private DocumentCategoryModel _inputModel = new();
+    private int _totalCount = 0;
+
+    private bool _showModal = false;
+    private Guid? _categoryEditedId = null;
+    private CancellationTokenSource? _debounceCts;
+
+    public void Dispose()
+    {
+        _debounceCts?.Cancel();
+        _debounceCts?.Dispose();
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (OperatingSystem.IsBrowser())
+        {
+            await ApplyFilter();
+        }
+    }
+
+    private void CloseModal()
+    {
+        _showModal = false;
+        _categoryEditedId = null;
+    }
+
+    private async Task Delete(Guid id)
+    {
+        using var context = await DbContextFactory.CreateDbContextAsync();
+        var category = await context.DocumentCategories.FindAsync(id);
+        
+        if (category is not null)
+        {
+            category.IsDeleted = true;
+            category.SyncStatus = SyncStatus.PendingDelete;
+            category.UpdatedAt = DateTime.UtcNow;
+            await context.SaveChangesAsync();
+            await ApplyFilter();
+        }
+    }
+
+    private async Task OnSearchInputDebounced(ChangeEventArgs e)
+    {
+        _filter.SearchTerm = e.Value?.ToString() ?? string.Empty;
+        _debounceCts?.Cancel();
+        _debounceCts?.Dispose();
+        _debounceCts = new CancellationTokenSource();
+        var token = _debounceCts.Token;
+
+        try
+        {
+            await Task.Delay(300, token);
+            if (!token.IsCancellationRequested)
+            {
+                await ResetPage();
+            }
+        }
+        catch (TaskCanceledException) { }
+    }
+
+    private void OpenCreateModal()
+    {
+        _categoryEditedId = null;
+        _inputModel = new DocumentCategoryModel();
+        _showModal = true;
+    }
+
+    private void OpenEditModal(DocumentCategory category)
+    {
+        _categoryEditedId = category.Id;
+        _inputModel = new DocumentCategoryModel
+        {
+            Name = category.Name,
+            Description = category.Description
+        };
+        _showModal = true;
+    }
+
+    private async Task ResetPage()
+    {
+        _filter.PageNumber = 1;
+        await ApplyFilter();
+    }
+
+    private async Task Save()
+    {
+        using var context = await DbContextFactory.CreateDbContextAsync();
+        var now = DateTime.UtcNow;
+        if (_categoryEditedId.HasValue)
+        {
+            var existingCategory = await context.DocumentCategories.FindAsync(_categoryEditedId.Value);
+            if (existingCategory is not null)
+            {
+                existingCategory.Name = _inputModel.Name.Trim();
+                existingCategory.Description = string.IsNullOrWhiteSpace(_inputModel.Description) ? null : _inputModel.Description.Trim();
+                existingCategory.UpdatedAt = now;
+                existingCategory.SyncStatus = SyncStatus.PendingUpdate;
+                await context.SaveChangesAsync();
+                _categoryEditedId = null;
+                _showModal = false;
+                await ApplyFilter();
+            }
+        }
+        else
+        {
+            var newCategory = new DocumentCategory
+            {
+                Id = Guid.NewGuid(),
+                Name = _inputModel.Name.Trim(),
+                Description = string.IsNullOrWhiteSpace(_inputModel.Description) ? null : _inputModel.Description.Trim(),
+                CreatedAt = now,
+                UpdatedAt = now,
+                IsDeleted = false,
+                SyncStatus = SyncStatus.PendingInsert
+            };
+            context.DocumentCategories.Add(newCategory);
+            await context.SaveChangesAsync();
+            _showModal = false;
+            _filter.Reset();
+            await ApplyFilter();
+        }
+    }
+
+    private async Task ToggleSortDirection()
+    {
+        _filter.SortDescending = !_filter.SortDescending;
+        await ApplyFilter();
+    }
+
+    private async Task ApplyFilter()
+    {
+        using var context = await DbContextFactory.CreateDbContextAsync();
+        IQueryable<DocumentCategory> query = context.DocumentCategories.Where(c => !c.IsDeleted);
+
+        if (!string.IsNullOrWhiteSpace(_filter.SearchTerm))
+        {
+            var match = $"%{_filter.SearchTerm.Trim()}%";
+            query = query.Where(c => EF.Functions.Like(c.Name, match) || EF.Functions.Like(c.Description, match));
+        }
+
+        if (_filter.SyncStatusFilter.HasValue)
+        {
+            query = query.Where(c => c.SyncStatus == _filter.SyncStatusFilter.Value);
+        }
+
+        _totalCount = await query.CountAsync();
+        query = _filter.SortColumn switch
+        {
+            nameof(DocumentCategory.CreatedAt) => _filter.SortDescending ? query.OrderByDescending(c => c.CreatedAt) : query.OrderBy(c => c.CreatedAt),
+            nameof(DocumentCategory.UpdatedAt) => _filter.SortDescending ? query.OrderByDescending(c => c.UpdatedAt) : query.OrderBy(c => c.UpdatedAt),
+            _ => _filter.SortDescending ? query.OrderByDescending(c => c.Name) : query.OrderBy(c => c.Name)
+        };
+
+        _categories = await query
+        .Skip((_filter.PageNumber - 1) * _filter.PageSize)
+        .Take(_filter.PageSize)
+        .ToListAsync();
+        StateHasChanged();
+    }
+}

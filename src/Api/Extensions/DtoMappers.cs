@@ -129,8 +129,6 @@ public static class DtoMappers
                 dto.Id,
                 dto.ContentHash,
                 dto.DocumentId,
-                dto.FileId,
-                dto.FileType,
                 dto.CreatedAt,
                 dto.UpdatedAt,
                 dto.ConcurrencyStamp,

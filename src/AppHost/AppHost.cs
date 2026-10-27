@@ -1,9 +1,21 @@
 using Azure.Security.KeyVault.Keys;
 using AzureKeyVaultEmulator.Aspire.Hosting;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 
 var builder = DistributedApplication.CreateBuilder(args);
+
+var fileOptions = builder.Configuration.GetSection("FileStorageOptions");
+var docsContainerName = !string.IsNullOrWhiteSpace(fileOptions["DocumentsContainerName"])
+    ? fileOptions["DocumentsContainerName"]!
+    : throw new InvalidOperationException("AppHost Boot Error: 'FileStorageOptions:DocumentsContainerName' must be specified and cannot be empty or whitespace.");
+
+var aiConfig = builder.Configuration.GetSection("AiOptions");
+var chatModelName = !string.IsNullOrWhiteSpace(aiConfig["ChatModelName"])
+    ? aiConfig["ChatModelName"]!
+    : throw new InvalidOperationException("AppHost Boot Error: 'AiOptions:ChatModelName' must be specified and cannot be empty or whitespace.");
+var embeddingModelName = !string.IsNullOrWhiteSpace(aiConfig["EmbeddingModelName"])
+    ? aiConfig["EmbeddingModelName"]!
+    : throw new InvalidOperationException("AppHost Boot Error: 'AiOptions:EmbeddingModelName' must be specified and cannot be empty or whitespace.");
 
 var isDev = builder.Environment.IsDevelopment();
 
@@ -44,16 +56,7 @@ var storage = builder.AddAzureStorage("Storage")
         }
     });
 var blobStorage = storage.AddBlobs("blobs");
-
-var aiConfig = builder.Configuration.GetSection("AiOptions");
-
-var chatModelName = !string.IsNullOrWhiteSpace(aiConfig["ChatModelName"])
-    ? aiConfig["ChatModelName"]!
-    : throw new InvalidOperationException("AppHost Boot Error: 'AiOptions:ChatModelName' must be specified and cannot be empty or whitespace.");
-
-var embeddingModelName = !string.IsNullOrWhiteSpace(aiConfig["EmbeddingModelName"])
-    ? aiConfig["EmbeddingModelName"]!
-    : throw new InvalidOperationException("AppHost Boot Error: 'AiOptions:EmbeddingModelName' must be specified and cannot be empty or whitespace.");
+var docsContainer = storage.AddBlobContainer(docsContainerName);
 
 var ollama = builder.AddOllama("ollama");
 if (isDev)
@@ -105,6 +108,7 @@ var apiService = builder.AddProject<Projects.Api>("api")
     .WithReference(appConfig)
     .WaitFor(appConfig)
     .WithReference(blobStorage)
+    .WaitFor(docsContainer)
     .WithReference(embeddingModel)
     .WaitFor(embeddingModel)
     .WithReference(llmModel)
@@ -112,12 +116,12 @@ var apiService = builder.AddProject<Projects.Api>("api")
     .WithReference(cache)
     .WaitFor(cache)
     .WithReference(supportDb)
-    .WaitForCompletion(dbMigrator) 
+    .WaitForCompletion(dbMigrator)
     .WithEnvironment("DataProtectionOptions__KeyIdentifier",
         ReferenceExpression.Create($"{keyVault.GetEndpoint("https")}/keys/data-protection-key"))
     .WithEnvironment("DataProtectionOptions__LocalFallBack", "");
 
-builder.AddProject<Projects.Web>("web")
+var web = builder.AddProject<Projects.Web>("web")
     .WithExternalHttpEndpoints()
     .WithHttpHealthCheck("/health")
     .WithReference(keyVault)
@@ -129,5 +133,8 @@ builder.AddProject<Projects.Web>("web")
     .WithEnvironment("DataProtectionOptions__KeyIdentifier",
         ReferenceExpression.Create($"{keyVault.GetEndpoint("https")}/keys/data-protection-key"))
     .WithEnvironment("DataProtectionOptions__LocalFallBack", "");
+
+apiService.WithEnvironment("WEB_HTTP", web.GetEndpoint("http"))
+    .WithEnvironment("WEB_HTTPS", web.GetEndpoint("https"));
 
 builder.Build().Run();

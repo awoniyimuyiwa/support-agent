@@ -4,6 +4,14 @@ namespace Domain;
 
 public interface IDocumentVersionRepository : IRepository<DocumentVersion>
 {
+    Task<HashSet<string>> GetExistingContentHashes(
+        IReadOnlyCollection<string> contentHashes, 
+        CancellationToken cancellationToken = default);
+
+    Task<HashSet<Guid>> GetExistingFileIds(
+        IReadOnlyCollection<Guid> fileIds,
+        CancellationToken cancellationToken = default);
+
     Task<PaginatedList<DocumentVersionDto>> Paginate(
         DocumentVersionFilterDto? filter,
         int pageNumber = Constants.MinPageNumber,
