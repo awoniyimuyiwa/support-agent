@@ -8,6 +8,17 @@ public class SyncBatch
 
     public string SerializedEntityIds { get; set; } = string.Empty; // JSON array of entity IDs included
 
+    public SyncType Type { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+public enum SyncType
+{
+    Sync = 0,
+
+    GetUploadUrls = 1,
+
+    Create = 2
 }
 

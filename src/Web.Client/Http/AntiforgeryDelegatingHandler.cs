@@ -32,7 +32,7 @@ public class AntiforgeryDelegatingHandler(
                 logger.LogInformation("Attempting retrieval of antiforgery verification token out of browser cookie store.");
                 try
                 {
-                    // Fast safety check to ensure JavaScript engine has initialized the method function
+                    // Fast safety check to ensure JavaScript engine has initialized the method
                     var isFunctionRegistered = await jsRuntime.InvokeAsync<bool>(
                         "eval",
                         cancellationToken,

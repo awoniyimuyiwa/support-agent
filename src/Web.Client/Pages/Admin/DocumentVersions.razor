@@ -31,15 +31,26 @@
         </div>
     </div>
 
+    @* Global Alert Banner for Blocked Sync Retries *@
+    @if (_versions.Any(v => !string.IsNullOrWhiteSpace(v.SerializedErrors)))
+    {
+        <div class="alert alert-warning border-0 shadow-sm d-flex align-items-center gap-3 mb-4" role="alert">
+            <span class="bi bi-exclamation-triangle-fill fs-4 text-warning"></span>
+            <div>
+                <strong class="d-block">Offline Synchronisation Suspended</strong>
+                <span class="small text-secondary">One or versions have server validation rejections. Please fix the properties outlined below to resume sync.</span>
+            </div>
+        </div>
+    }
+
     <div class="card border-0 shadow-sm overflow-hidden mb-4">
         <div class="table-responsive">
-            <table class="table table-striped align-middle mb-0">
+            <table class="table align-middle mb-0">
                 <thead class="table-dark text-uppercase small" style="font-size:0.75rem;">
                     <tr>
                         <th class="ps-4">Version Commit ID</th>
                         <th>Content Hash</th>
                         <th>Remote Cloud Blob Identifier</th>
-                        <th>Mime Asset Type</th>
                         <th>Created At</th>
                         <th>Status</th>
                         <th class="pe-4 text-end">Actions</th>
@@ -50,9 +61,9 @@
                     @if (_versions.Count == 0)
                     {
                         <tr>
-                            <td colspan="7" class="text-center p-5 text-muted font-sans-serif">
+                            <td colspan="6" class="text-center p-5 text-muted font-sans-serif">
                                 <span class="bi bi-git fs-1 d-block mb-2 text-secondary opacity-50"></span>
-                                No historical versions bound to this profile index.
+                                No Versions
                             </td>
                         </tr>
                     }
@@ -60,20 +71,66 @@
                     {
                         @foreach (var version in _versions)
                         {
-                            <tr>
+                                                        
+                            <tr class="@(!string.IsNullOrWhiteSpace(version.SerializedErrors) ? "table-danger-light border-start border-danger border-3" : "")">
                                 <td class="ps-4 text-secondary">#@version.Id.ToString()[..8]</td>
                                 <td class="fw-bold text-dark text-truncate" style="max-width: 200px;" title="@version.ContentHash">@version.ContentHash</td>
-                                <td class="text-primary text-truncate" style="max-width:140px;">@(version.File?.Type ?? string.Empty)</td>
+                                <td class="text-primary text-truncate" style="max-width:140px;">@(version.StoredFile?.Type ?? string.Empty)</td>
                                 <td class="font-sans-serif">@version.CreatedAt.ToLocalTime().ToString("G")</td>
                                 <td class="font-sans-serif">
-                                    <span class="badge bg-light text-secondary border">@version.SyncStatus</span>
+                                    @if (!string.IsNullOrWhiteSpace(version.SerializedErrors))
+                                    {
+                                        <span class="badge bg-danger text-white border-0 shadow-sm animate-pulse" title="Validation Errors">Sync Error</span>
+                                    }
+                                    else if (version.SyncStatus == SyncStatus.PendingInsert)
+                                    {
+                                        <span class="badge bg-info text-dark border"><span class="spinner-border spinner-border-sm me-1" style="width:0.7rem; height:0.7rem;"></span> Queued</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-light text-secondary border">@version.SyncStatus</span>
+                                    }
                                 </td>
                                 <td class="pe-4 text-end font-sans-serif">
-                                    <button class="btn btn-outline-danger btn-sm border-0" @onclick="() => Delete(version.Id)" title="Soft-delete version slot">
-                                        <span class="bi bi-trash3-fill"></span> Mark Deletion
+                                    @if (!string.IsNullOrWhiteSpace(version.SerializedErrors))
+                                    {
+                                        <button class="btn btn-sm btn-outline-warning fw-semibold me-1 border-0" @onclick="() => EditRejectedVersion(version)">
+                                            <span class="bi bi-pencil-square"></span> Resolve
+                                        </button>
+                                    }
+                                    <button class="btn btn-outline-danger btn-sm border-0" @onclick="() => Delete(version.Id)" title="Soft-delete">
+                                        <span class="bi bi-trash3-fill"></span> Delete
                                     </button>
                                 </td>
                             </tr>
+
+                            @* Inline error details tray display beneath the rejected row element *@
+                            @if (!string.IsNullOrWhiteSpace(version.SerializedErrors))
+                            {
+                                var errorMap = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string[]>>(version.SerializedErrors);
+                                if (errorMap is not null && errorMap.Count > 0)
+                                {
+                                    <tr class="table-danger-light">
+                                        <td colspan="6" class="ps-5 pe-4 py-2 font-sans-serif text-danger bg-opacity-10 border-bottom">
+                                            <div class="card card-body bg-white border-danger shadow-xs py-2 mb-2">
+                                                <div class="fw-bold text-uppercase small text-secondary mb-1"><span class="bi bi-bug-fill me-1"></span> Server Validation Errors</div>
+                                                <ul class="list-unstyled mb-0 small">
+                                                    @foreach (var error in errorMap)
+                                                    {
+                                                        @foreach (var msg in error.Value)
+                                                        {
+                                                            <li class="d-flex align-items-start gap-1 text-danger">
+                                                                <span class="bi bi-dot mt-0.5"></span>
+                                                                <span><strong>@error.Key:</strong> @msg</span>
+                                                            </li>
+                                                        }
+                                                    }
+                                                </ul>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                            }
                         }
                     }
                 </tbody>
@@ -82,30 +139,44 @@
     </div>
 </div>
 
+
 @if (_showUploadModal)
 {
     <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);" role="dialog">
         <div class="modal-dialog modal-dialog-centered" role="document">
             <div class="modal-content border-0 shadow-lg">
                 <div class="modal-header bg-light">
-                    <h5 class="modal-title fw-bold text-dark"><span class="bi bi-git me-2"></span>Append Version Increment</h5>
+                    <h5 class="modal-title fw-bold text-dark">
+                        <span class="bi @(_editingVersion is null ? "bi-plus-circle" : "bi-arrow-repeat") me-2"></span>
+                        @(_editingVersion is null ? "Upload" : "Re-upload")
+                    </h5>
                     <button type="button" class="btn-close" @onclick="CloseUploadModal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body py-4">
-                    <p class="small text-secondary mb-3">Uploading an updated document variant asset will recalculate checksum parameters and update system history schemas.</p>
+                    <p class="small text-secondary mb-3">
+                        Select a file to attach. Only PDF and DOCX formats up to @(Web.Client.Extensions.BrowserFile.MaxMB)MB are supported.
+                    </p>
+
                     <div class="mb-0">
-                        <label class="form-label small fw-bold text-secondary text-uppercase">Select Binary Stream (PDF, DOCX up to 5MB)</label>
+                        <label class="form-label small fw-bold text-secondary text-uppercase">
+                            Select File
+                        </label>
                         <InputFile class="form-control" OnChange="OnInputFileSelected" />
-                        @if (!string.IsNullOrEmpty(_fileValidationError))
+
+                        @if (!string.IsNullOrWhiteSpace(_fileValidationError))
                         {
-                            <div class="text-danger small mt-1 fw-semibold"><span class="bi bi-x-circle-fill"></span> @_fileValidationError</div>
+                            <div class="text-danger small mt-2 fw-semibold">
+                                <span class="bi bi-x-circle-fill"></span> @_fileValidationError
+                            </div>
                         }
                     </div>
                 </div>
                 <div class="modal-footer bg-light border-0">
                     <button type="button" class="btn btn-outline-secondary fw-semibold px-4" @onclick="CloseUploadModal">Cancel</button>
-                    <button type="button" class="btn btn-primary fw-semibold px-4" @onclick="Save" disabled="@(_selectedBrowserFile is null || !string.IsNullOrEmpty(_fileValidationError))">
-                        <span class="bi bi-cloud-arrow-up-fill"></span> Commit Incremental Version
+                    <button type="button" class="btn btn-primary fw-semibold px-4" @onclick="Save"
+                            disabled="@(_selectedBrowserFile is null || !string.IsNullOrWhiteSpace(_fileValidationError))">
+                        <span class="bi @(_editingVersion is null ? "bi-cloud-arrow-up-fill" : "bi-check-circle-fill") me-1"></span>
+                        @(_editingVersion is null ? "Save" : "Apply & Re-queue")
                     </button>
                 </div>
             </div>
@@ -123,6 +194,8 @@
     private string? _fileValidationError = null;
     private bool _showUploadModal = false;
 
+    private DocumentVersion? _editingVersion = null;
+
     protected override async Task OnInitializedAsync()
     {
         if (OperatingSystem.IsBrowser())
@@ -132,7 +205,13 @@
         }
     }
 
-    private void CloseUploadModal() => _showUploadModal = false;
+    private void CloseUploadModal()
+    {
+        _showUploadModal = false;
+        _editingVersion = null;
+        _fileValidationError = null;
+        _selectedBrowserFile = null;
+    }
 
     private async Task Delete(Guid versionId)
     {
@@ -165,10 +244,11 @@
     {
         using var context = await DbContextFactory.CreateDbContextAsync();
 
-        _versions = await context.DocumentVersions       
-        .Where(v => v.DocumentId == DocumentId && !v.IsDeleted)       
-        .OrderByDescending(v => v.CreatedAt)       
-        .ToListAsync();
+        _versions = await context.DocumentVersions
+            .Include(v => v.StoredFile)
+            .Where(v => v.DocumentId == DocumentId && !v.IsDeleted)
+            .OrderByDescending(v => v.CreatedAt)
+            .ToListAsync();
     }
 
     private void OnInputFileSelected(InputFileChangeEventArgs e)
@@ -179,6 +259,15 @@
 
     private void OpenUploadModal()
     {
+        _editingVersion = null;
+        _selectedBrowserFile = null;
+        _fileValidationError = null;
+        _showUploadModal = true;
+    }
+
+    private void EditRejectedVersion(DocumentVersion version)
+    {
+        _editingVersion = version;
         _selectedBrowserFile = null;
         _fileValidationError = null;
         _showUploadModal = true;
@@ -197,18 +286,43 @@
             return;
         }
 
-        var (version, error) = await _selectedBrowserFile.ComputeAndCreateVersion(
-            context.DocumentVersions,
-            DocumentId);
-        if (!string.IsNullOrWhiteSpace(error) || version is null)
+        if (_editingVersion is null)
         {
-            _fileValidationError = error;
-            return;
+            var (newVersion, error) = await _selectedBrowserFile.ComputeAndCreateVersion(
+                context.DocumentVersions,
+                DocumentId);
+
+            if (!string.IsNullOrWhiteSpace(error) || newVersion is null)
+            {
+                _fileValidationError = error;
+                return;
+            }
+
+            context.DocumentVersions.Add(newVersion);
+        }
+        else
+        {
+            var dbRecord = await context.DocumentVersions
+                .Include(v => v.StoredFile)
+                .FirstOrDefaultAsync(v => v.Id == _editingVersion.Id);
+
+            if (dbRecord is null) return;
+
+            var error = await _selectedBrowserFile.ComputeAndUpdateVersion(
+                context.DocumentVersions,
+                dbRecord);
+
+            if (!string.IsNullOrWhiteSpace(error))
+            {
+                _fileValidationError = error;
+                return;
+            }
+
+            context.DocumentVersions.Update(dbRecord);
         }
 
-        context.DocumentVersions.Add(version);
         await context.SaveChangesAsync();
-        _showUploadModal = false;
+        CloseUploadModal();
         await LoadVersions();
     }
 }

@@ -87,8 +87,14 @@
                     {
                         @foreach (var doc in _documents)
                         {
-                            <tr class="animate-fade-in">
-                                <td class="ps-4 fw-bold text-dark">@doc.Name</td>
+                            <tr class="animate-fade-in @(!string.IsNullOrWhiteSpace(doc.SerializedErrors) ? "table-danger-light border-start border-danger border-3" : "")">
+                                <td class="ps-4 fw-bold text-dark">
+                                    @doc.Name
+                                    @if (!string.IsNullOrWhiteSpace(doc.SerializedErrors))
+                                    {
+                                        <span class="badge bg-danger ms-1 text-white animate-pulse" title="Sync Rejected">Error</span>
+                                    }
+                                </td>
                                 <td class="text-secondary">@(doc.DocumentCategory?.Name ?? "Unassigned")</td>
                                 <td>
                                     <span class="badge bg-light text-secondary border font-monospace px-2">
@@ -96,9 +102,34 @@
                                     </span>
                                 </td>
                                 <td>@doc.CreatedAt.ToLocalTime().ToString("g")</td>
-                                <td><span class="badge bg-dark-subtle text-dark-emphasis">@doc.SyncStatus</span></td>
+                                <td>
+                                    @if (!string.IsNullOrWhiteSpace(doc.SerializedErrors))
+                                    {
+                                        <span class="badge bg-danger text-white border-0">Sync Error</span>
+                                    }
+                                    else if (doc.SyncStatus == SyncStatus.PendingInsert)
+                                    {
+                                        <span class="badge bg-info text-dark border"><span class="spinner-border spinner-border-sm me-1" style="width:0.7rem; height:0.7rem;"></span> Queued</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-dark-subtle text-dark-emphasis">@doc.SyncStatus</span>
+                                    }
+                                </td>
                                 <td class="pe-4 text-end">
-                                    <a class="btn btn-outline-secondary btn-sm border-0" href="admin/documents/@doc.Id/document-versions" title="View Version">
+                                    @if (!string.IsNullOrWhiteSpace(doc.SerializedErrors))
+                                    {
+                                        <button class="btn btn-outline-warning btn-sm border-0 me-1" @onclick="() => OpenEditModal(doc)" title="Resolve Errors">
+                                            <span class="bi bi-exclamation-circle-fill text-danger"></span> Fix
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <button class="btn btn-outline-secondary btn-sm border-0 me-1" @onclick="() => OpenEditModal(doc)" title="Edit">
+                                            <span class="bi bi-pencil-square"></span>
+                                        </button>
+                                    }
+                                    <a class="btn btn-outline-secondary btn-sm border-0 me-1" href="admin/documents/@doc.Id/document-versions" title="View Versions">
                                         <span class="bi bi-git"></span>
                                     </a>
                                     <button class="btn btn-outline-danger btn-sm border-0" @onclick="() => PromptDelete(doc)" title="Delete">
@@ -106,6 +137,34 @@
                                     </button>
                                 </td>
                             </tr>
+
+                            @* Inline background error trace display tray *@
+                            @if (!string.IsNullOrWhiteSpace(doc.SerializedErrors))
+                            {
+                                var errorMap = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string[]>>(doc.SerializedErrors);
+                                if (errorMap is not null && errorMap.Count > 0)
+                                {
+                                    <tr class="table-danger-light">
+                                        <td colspan="6" class="ps-5 pe-4 py-2 font-sans-serif text-danger bg-opacity-10 border-bottom">
+                                            <div class="card card-body bg-white border-danger shadow-xs py-2 mb-1">
+                                                <div class="fw-bold text-uppercase small text-secondary mb-1"><span class="bi bi-bug-fill me-1"></span> Server Rejection Reasons</div>
+                                                <ul class="list-unstyled mb-0 small">
+                                                    @foreach (var error in errorMap)
+                                                    {
+                                                        @foreach (var msg in error.Value)
+                                                        {
+                                                            <li class="d-flex align-items-start gap-1 text-danger">
+                                                                <span class="bi bi-dot mt-0.5"></span>
+                                                                <span><strong>@error.Key:</strong> @msg</span>
+                                                            </li>
+                                                        }
+                                                    }
+                                                </ul>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                            }
                         }
                     }
                 </tbody>
@@ -122,21 +181,27 @@
 <!-- Upload Document + Version Modal Box -->
 @if (_showUploadModal)
 {
-    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);" role="dialog">
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0, 0, 0, 0.5);" role="dialog">
         <div class="modal-dialog modal-dialog-centered modal-lg" role="document">
             <div class="modal-content border-0 shadow-lg">
-                <div class="modal-header bg-light">
-                    <h5 class="modal-title fw-bold text-dark"><span class="bi bi-cloud-upload-fill me-2"></span>Create</h5>
-                    <button type="button" class="btn-close" @onclick="CloseCreateModal" aria-label="Close"></button>
-                </div>
-                <EditForm Model="_inputModel" OnValidSubmit="Save">
+                <EditForm EditContext="@_editContext" OnValidSubmit="Save">
                     <DataAnnotationsValidator />
+                    
+                    <div class="modal-header bg-light">
+                        <h5 class="modal-title fw-bold text-dark">
+                            <span class="bi @(_documentEditedId.HasValue ? "bi-pencil-square" : "bi-cloud-upload-fill") me-2"></span>
+                            @(_documentEditedId.HasValue ? "Edit" : "Create")
+                        </h5>
+                        <button type="button" class="btn-close" @onclick="CloseCreateModal" aria-label="Close"></button>
+                    </div>
+                    
                     <div class="modal-body py-4">
                         <div class="mb-3">
                             <label class="form-label small fw-bold text-secondary text-uppercase">Name</label>
                             <InputText class="form-control" placeholder="e.g., Q4 Financial Framework Schema" @bind-Value="_inputModel.Name" />
-                            <ValidationMessage For="() => _inputModel.Name" class="text-danger small mt-1" />
+                            <ValidationMessage For="() => _inputModel.Name" class="text-danger small mt-1 d-block fw-semibold" />
                         </div>
+                        
                         <div class="mb-3">
                             <label class="form-label small fw-bold text-secondary text-uppercase">Category</label>
                             <InputSelect class="form-select" @bind-Value="_inputModel.DocumentCategoryId">
@@ -146,21 +211,32 @@
                                     <option value="@cat.Id.ToString()">@cat.Name</option>
                                 }
                             </InputSelect>
-                            <ValidationMessage For="() => _inputModel.DocumentCategoryId" class="text-danger small mt-1" />
+                            <ValidationMessage For="() => _inputModel.DocumentCategoryId" class="text-danger small mt-1 d-block fw-semibold" />
                         </div>
-                        <div class="mb-0">
-                            <label class="form-label small fw-bold text-secondary text-uppercase">Select File (PDF, DOCX up to 4MB)</label>
-                            <InputFile class="form-control" OnChange="OnInputFileSelected" />
-                            @if (!string.IsNullOrWhiteSpace(_fileValidationError))
-                            {
-                                <div class="text-danger small mt-1fw-semibold"><span class="bi bi-x-circle-fill"></span> @_fileValidationError</div>
-                            }
-                        </div>
+                        
+                        @* Binary Stream Selector: Only displays for Create *@
+                        @if (!_documentEditedId.HasValue)
+                        {
+                            <div class="mb-0">
+                                <label class="form-label small fw-bold text-secondary text-uppercase">
+                                    Select Document File (PDF, DOCX up to @(Web.Client.Extensions.BrowserFile.MaxMB)MB)
+                                </label>
+                                <InputFile class="form-control" OnChange="OnInputFileSelected" />
+                                @if (!string.IsNullOrWhiteSpace(_fileValidationError))
+                                {
+                                    <div class="text-danger small mt-2 fw-semibold">
+                                        <span class="bi bi-x-circle-fill"></span> @_fileValidationError
+                                    </div>
+                                }
+                            </div>
+                        }
                     </div>
+                    
                     <div class="modal-footer bg-light border-0">
                         <button type="button" class="btn btn-outline-secondary fw-semibold px-4" @onclick="CloseCreateModal">Cancel</button>
-                        <button type="submit" class="btn btn-primary fw-semibold px-4" disabled="@(_selectedBrowserFile is null || !string.IsNullOrWhiteSpace(_fileValidationError))">
-                            <span class="bi bi-cloud-arrow-up-fill"></span> Commit Local Asset
+                        <button type="submit" class="btn btn-primary fw-semibold px-4" 
+                                disabled="@(!_documentEditedId.HasValue && (_selectedBrowserFile is null || !string.IsNullOrWhiteSpace(_fileValidationError)))">
+                            <span class="bi bi-check-circle-fill me-1"></span> Save
                         </button>
                     </div>
                 </EditForm>
@@ -188,7 +264,7 @@
                         @_docToDelete.Name
                     </div>
                     <p class="text-danger small mt-3 mb-0 fw-semibold">
-                        <span class="bi bi-info-circle-fill"></span> This will flag the document for background cleanup queues.
+                        <span class="bi bi-info-circle-fill"></span> This will flag the document for background cleanup.
                     </p>
                 </div>
 
@@ -221,10 +297,19 @@
     private Document? _docToDelete = null;
     private CancellationTokenSource? _debounceCts;
 
+    private EditContext? _editContext;
+    private ValidationMessageStore? _messageStore;
+    private Guid? _documentEditedId = null;
+
     public void Dispose()
     {
         _debounceCts?.Cancel();
         _debounceCts?.Dispose();
+
+        if (_editContext is not null)
+        {
+            _editContext.OnFieldChanged -= HandleFieldChanged;
+        }
     }
 
     protected override async Task OnInitializedAsync()
@@ -241,8 +326,21 @@
         _showDeleteModal = false;
         _docToDelete = null;
     }
+ 
+    private void CloseCreateModal()
+    {
+        if (_editContext is not null)
+        {
+            _editContext.OnFieldChanged -= HandleFieldChanged;
+        }
 
-    private void CloseCreateModal() => _showUploadModal = false;
+        _showUploadModal = false;
+        _documentEditedId = null;
+        _fileValidationError = null;
+        _selectedBrowserFile = null;
+        _editContext = null;
+        _messageStore = null;
+    }
 
     private async Task ConfirmDelete()
     {
@@ -257,7 +355,6 @@
             doc.SyncStatus = SyncStatus.PendingDelete;
             doc.UpdatedAt = now;
 
-            // Cascade delete
             var versions = await context.DocumentVersions.Where(v => v.DocumentId == doc.Id).ToListAsync();
             foreach (var v in versions)
             {
@@ -271,6 +368,14 @@
         _showDeleteModal = false;    
         _docToDelete = null;
         await ApplyFilter();
+    }
+
+    // Intercepts edits to clear target field error messages instantly
+    private void HandleFieldChanged(object? sender, FieldChangedEventArgs e)
+    {
+        if (_messageStore is null || _editContext is null) return;
+        _messageStore.Clear(e.FieldIdentifier);
+        _editContext.NotifyValidationStateChanged();
     }
 
     private async Task HydrateFilterDropdowns()
@@ -305,9 +410,51 @@
 
     private void OpenCreateModal()
     {
+        _documentEditedId = null;
         _inputModel = new DocumentModel();
         _selectedBrowserFile = null;
         _fileValidationError = null;
+
+        _editContext = new EditContext(_inputModel);
+        _messageStore = new ValidationMessageStore(_editContext);
+        _editContext.OnFieldChanged += HandleFieldChanged;
+
+        _showUploadModal = true;
+    }
+
+    private void OpenEditModal(Document doc)
+    {
+        _documentEditedId = doc.Id;
+        _inputModel = new DocumentModel
+        {
+            Name = doc.Name,
+            DocumentCategoryId = doc.DocumentCategoryId.ToString()
+        };
+
+        _selectedBrowserFile = null;
+        _fileValidationError = null;
+
+        _editContext = new EditContext(_inputModel);
+        _messageStore = new ValidationMessageStore(_editContext);
+        _editContext.OnFieldChanged += HandleFieldChanged;
+
+        if (!string.IsNullOrWhiteSpace(doc.SerializedErrors))
+        {
+            var serverErrors = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string[]>>(doc.SerializedErrors);
+            if (serverErrors is not null)
+            {
+                foreach (var err in serverErrors)
+                {
+                    var fieldId = new FieldIdentifier(_inputModel, err.Key);
+                    foreach (var msg in err.Value)
+                    {
+                        _messageStore.Add(fieldId, msg);
+                    }
+                }
+                _editContext.NotifyValidationStateChanged();
+            }
+        }
+
         _showUploadModal = true;
     }
 
@@ -325,36 +472,62 @@
 
     private async Task Save()
     {
-        if (_selectedBrowserFile is null || !string.IsNullOrWhiteSpace(_fileValidationError)) return;
+        if (_editContext is null || !_editContext.Validate()) return;
 
         using var context = await DbContextFactory.CreateDbContextAsync();
-        var documentId = Guid.NewGuid();
+        var now = DateTime.UtcNow;
 
-        var (version, error) = await _selectedBrowserFile.ComputeAndCreateVersion(
-            context.DocumentVersions,
-            documentId);
-        if (!string.IsNullOrWhiteSpace(error) || version is null)
+        if (_documentEditedId.HasValue)
         {
-            _fileValidationError = error;
-            return;
+            // Edit
+            var existingDoc = await context.Documents.FindAsync(_documentEditedId.Value);
+            if (existingDoc is not null)
+            {
+                existingDoc.Name = _inputModel.Name.Trim();
+                existingDoc.DocumentCategoryId = Guid.Parse(_inputModel.DocumentCategoryId);
+                existingDoc.UpdatedAt = now;
+                
+                // Clear rejection parameters to re-queue back into execution synchronization loops
+                existingDoc.SerializedErrors = null;
+                existingDoc.SyncStatus = SyncStatus.PendingUpdate;
+
+                context.Documents.Update(existingDoc);
+            }
+        }
+        else
+        {
+            // Create
+            if (_selectedBrowserFile is null || !string.IsNullOrWhiteSpace(_fileValidationError)) return;
+
+            var documentId = Guid.NewGuid();
+            var (version, error) = await _selectedBrowserFile.ComputeAndCreateVersion(
+                context.DocumentVersions,
+                documentId);
+
+            if (!string.IsNullOrWhiteSpace(error) || version is null)
+            {
+                _fileValidationError = error;
+                return;
+            }
+
+            var document = new Document
+            {
+                Id = documentId,
+                Name = _inputModel.Name.Trim(),
+                DocumentCategoryId = Guid.Parse(_inputModel.DocumentCategoryId),
+                CreatedAt = version.CreatedAt,
+                UpdatedAt = version.UpdatedAt,
+                IsDeleted = false,
+                SyncStatus = SyncStatus.PendingInsert
+            };
+
+            context.Documents.Add(document);
+            context.DocumentVersions.Add(version);
+            _filter.Reset();
         }
 
-        var document = new Document
-        {
-            Id = documentId,
-            Name = _inputModel.Name.Trim(),
-            DocumentCategoryId = Guid.Parse(_inputModel.DocumentCategoryId),
-            CreatedAt = version.CreatedAt,
-            UpdatedAt = version.UpdatedAt,
-            IsDeleted = false,
-            SyncStatus = SyncStatus.PendingInsert
-        };
-        context.Documents.Add(document);
-        context.DocumentVersions.Add(version);
-
         await context.SaveChangesAsync();
-        _showUploadModal = false;
-        _filter.Reset();
+        CloseCreateModal();
         await ApplyFilter();
     }
 

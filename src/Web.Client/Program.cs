@@ -54,7 +54,7 @@ builder.Services.AddSqliteWasmDbContextFactory<ApplicationDbContext>(options =>
 });
 
 builder.Services.AddSingleton(TimeProvider.System);
-builder.Services.AddScoped<ISyncService, SyncService>();
+builder.Services.AddScoped<SyncService>();
 
 var host = builder.Build();
 
@@ -105,7 +105,7 @@ static async Task InitializeStorage(IServiceProvider services, ILogger logger)
             // the tab or their battery died mid-transmission.             
             logger.LogWarning("Interrupted data synchronization batch discovered during startup processing sequence. Stranded Idempotency Key: {BatchId}", interruptedBatch.Id);
 
-            var syncService = services.GetRequiredService<ISyncService>();
+            var syncService = services.GetRequiredService<SyncService>();
             await syncService.ResumeBatch(interruptedBatch.Id);
         }
         else

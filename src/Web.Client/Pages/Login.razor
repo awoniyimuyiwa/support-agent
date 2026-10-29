@@ -140,7 +140,7 @@ else
                 Logger.LogInformation("WASM client stabilized. Safely pulling client-side antiforgery token...");
 
                 // This call runs in the browser where cookies can be written
-                await ApiClient.GetAntiforgeryToken();
+                using var _ = await ApiClient.GetAntiforgeryToken();
 
                 _isAntiforgeryLoaded = true;
 
@@ -170,14 +170,14 @@ else
 
         try
         {
-            var response = await ApiClient.Login(_loginModel);
+            using var response = await ApiClient.Login(_loginModel);
 
             if (response.IsSuccessStatusCode)
             {
                 _isRedirecting = true; // Turn on shield instantly to drop form layouts
                 StateHasChanged();
 
-                await ApiClient.GetAntiforgeryToken();
+                using var _ = await ApiClient.GetAntiforgeryToken();
                 
                 var destination = "/dashboard";
                 if (!string.IsNullOrWhiteSpace(ReturnUrl) && IsLocalUrl(ReturnUrl))

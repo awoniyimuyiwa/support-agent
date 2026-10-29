@@ -7,6 +7,32 @@ namespace Web.Client;
 
 public class ApiClient(HttpClient httpClient)
 {
+    public HttpClient HttpClient => httpClient;
+
+    /// <summary>
+    /// Creates docuemnt versions
+    /// </summary>
+    public Task<HttpResponseMessage> CreateDocumentVersions(
+        CreateDocumentVersionRequest batch,
+        Guid idempotencyKey,
+        CancellationToken cancellationToken = default) => PostBatch(
+            "v1/admin/document-versionss",
+            batch,
+            idempotencyKey,
+            cancellationToken);
+
+    /// <summary>
+    /// Requests pre-signed cloud storage upload URLs for a batch of document versions.
+    /// </summary>
+    public Task<HttpResponseMessage> CreateDocumentVersionUploadUrls(
+        CreateUploadUrlRequest batch,
+        Guid idempotencyKey,
+        CancellationToken cancellationToken = default) => PostBatch(
+            "v1/admin/document-versions/upload-urls",
+            batch,
+            idempotencyKey,
+            cancellationToken);
+
     /// <summary>
     /// Calls server to set the anti-forgery token cookie
     /// </summary>
@@ -43,7 +69,7 @@ public class ApiClient(HttpClient httpClient)
             cancellationToken);
     
     /// <summary>
-    /// Fetches document adjustments
+    /// Fetches document updates
     /// </summary>
     public Task<HttpResponseMessage> StreamDocumentDeltas(
         string? next, 
@@ -53,7 +79,7 @@ public class ApiClient(HttpClient httpClient)
             token);
 
     /// <summary>
-    /// Fetches document category adjustments
+    /// Fetches document category updates
     /// </summary>
     public Task<HttpResponseMessage> StreamDocumentCategoryDeltas(
         string? next,
@@ -63,7 +89,7 @@ public class ApiClient(HttpClient httpClient)
             token);
 
     /// <summary>
-    /// Fetches document version adjustments
+    /// Fetches document version updates
     /// </summary>
     public Task<HttpResponseMessage> StreamDocumentVersionDeltas(
         string? next,
@@ -73,7 +99,7 @@ public class ApiClient(HttpClient httpClient)
             token);
 
     /// <summary>
-    /// Fetches ticket adjustments that belong to the user
+    /// Fetches updates of tickets that belong to the user
     /// </summary>
     public Task<HttpResponseMessage> StreamTicketDeltas(
         string? next,
@@ -83,9 +109,9 @@ public class ApiClient(HttpClient httpClient)
             token);
 
     /// <summary>
-    /// Fetches all ticket adjustments
+    /// Fetches all ticket updates
     /// </summary>
-    public Task<HttpResponseMessage> StreamAdminTicketDeltas(
+    public Task<HttpResponseMessage> StreamAllTicketDeltas(
         string? next,
         CancellationToken token = default) => StreamDeltas(
             "v1/admin/tickets",
@@ -98,7 +124,7 @@ public class ApiClient(HttpClient httpClient)
     public Task<HttpResponseMessage> SyncDocuments(
         DocumentSyncRequest batch,
         Guid idempotencyKey,
-        CancellationToken cancellationToken = default) => Sync(
+        CancellationToken cancellationToken = default) => PostBatch(
             "v1/admin/documents",
             batch,
             idempotencyKey,
@@ -110,7 +136,7 @@ public class ApiClient(HttpClient httpClient)
     public Task<HttpResponseMessage> SyncDocumentCategories(
         DocumentCategorySyncRequest batch,
         Guid idempotencyKey,
-        CancellationToken cancellationToken = default) => Sync(
+        CancellationToken cancellationToken = default) => PostBatch(
             "v1/admin/document-categories",
             batch,
             idempotencyKey,
@@ -122,7 +148,7 @@ public class ApiClient(HttpClient httpClient)
     public Task<HttpResponseMessage> SyncDocumentVersions(
         DocumentVersionSyncRequest batch,
         Guid idempotencyKey,
-        CancellationToken cancellationToken = default) => Sync(
+        CancellationToken cancellationToken = default) => PostBatch(
             "v1/admin/document-versions",
             batch,
             idempotencyKey,
@@ -134,7 +160,7 @@ public class ApiClient(HttpClient httpClient)
     public Task<HttpResponseMessage> SyncTickets(
         TicketSyncRequest batch,
         Guid idempotencyKey,
-        CancellationToken cancellationToken = default) => Sync(
+        CancellationToken cancellationToken = default) => PostBatch(
             "v1/tickets",
             batch, 
             idempotencyKey, 
@@ -143,14 +169,35 @@ public class ApiClient(HttpClient httpClient)
     /// <summary>
     /// Syncs all tickets
     /// </summary>
-    public Task<HttpResponseMessage> SyncAdminTickets(
+    public Task<HttpResponseMessage> SyncAllTickets(
         FullTicketSyncRequest batch,
         Guid idempotencyKey,
-        CancellationToken cancellationToken = default) => Sync(
+        CancellationToken cancellationToken = default) => PostBatch(
             "v1/admin/tickets",
             batch,
             idempotencyKey,
             cancellationToken);
+
+    private Task<HttpResponseMessage> PostBatch<TBody>(
+        string endpoint,
+        TBody batch,
+        Guid idempotencyKey,
+        CancellationToken cancellationToken)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
+        {
+            Content = JsonContent.Create(batch)
+        };
+
+        request.Headers.Add(
+            Constants.IdempotencyKeyHeaderName,
+            idempotencyKey.ToString());
+
+        return httpClient.SendAsync(
+            request,
+            HttpCompletionOption.ResponseHeadersRead,
+            cancellationToken);
+    }
 
     private async Task<HttpResponseMessage> StreamDeltas(
         string path,
@@ -166,23 +213,5 @@ public class ApiClient(HttpClient httpClient)
         }
 
         return await httpClient.GetAsync(url, token);
-    }
-
-    private async Task<HttpResponseMessage> Sync<TBody>(
-        string endpoint,
-        TBody batch,
-        Guid idempotencyKey,
-        CancellationToken cancellationToken)
-    {
-        var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
-        {
-            Content = JsonContent.Create(batch)
-        };
-
-        request.Headers.Add(
-            Constants.IdempotencyKeyHeaderName,
-            idempotencyKey.ToString());
-
-        return await httpClient.SendAsync(request, cancellationToken);
     }
 }

@@ -7,4 +7,3 @@ public enum SyncStatus : byte
     PendingUpdate = 2,
     PendingDelete = 3
 }
-

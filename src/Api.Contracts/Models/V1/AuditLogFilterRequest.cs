@@ -1,7 +1,6 @@
-﻿namespace Api.Contracts.Models.V1;
+﻿using System.ComponentModel.DataAnnotations;
 
-using Domain.Shared;
-using System.ComponentModel.DataAnnotations;
+namespace Api.Contracts.Models.V1;
 
 /// <summary>
 /// Filter criteria for audit logs.
@@ -17,13 +16,13 @@ using System.ComponentModel.DataAnnotations;
 /// <param name="UserId"></param>
 public record AuditLogFilterRequest(
     DateTimeOffset? From = null,
-    [MaxLength(Constants.StringMaxLength)] string? HttpMethod = null,
-    [MaxLength(Constants.StringMaxLength)] string? IpAddress = null,
+    [MaxLength(Domain.Shared.Constants.StringMaxLength)] string? HttpMethod = null,
+    [MaxLength(Domain.Shared.Constants.StringMaxLength)] string? IpAddress = null,
     bool? IsSuccessful = null,
-    [MaxLength(Constants.StringMaxLength)] string? RequestId = null,
+    [MaxLength(Domain.Shared.Constants.StringMaxLength)] string? RequestId = null,
     int? StatusCode = null,
     DateTimeOffset? To = null,
-    [MaxLength(Constants.StringMaxLength)] string? Url = null,
+    [MaxLength(Domain.Shared.Constants.StringMaxLength)] string? Url = null,
     Guid? UserId = null) : IValidatableObject
 {
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)

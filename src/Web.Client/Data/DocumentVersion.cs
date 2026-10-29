@@ -1,6 +1,6 @@
 namespace Web.Client.Data;
 
-public class DocumentVersion : ISyncableEntity
+public class DocumentVersion : IHasFile
 {
     public Guid Id { get; set; }
 
@@ -10,16 +10,20 @@ public class DocumentVersion : ISyncableEntity
 
     public Document? Document { get; set; }
 
-    public Guid FileId { get; set; }
-    public StoredFile? File { get; set; }
-
     public DateTime CreatedAt { get; set; }
 
     public DateTime UpdatedAt { get; set; }
 
     public string? ConcurrencyStamp { get; set; }
 
+    public Guid StoredFileId { get; set; }
+
+    public StoredFile? StoredFile { get; set; }
+
     public bool IsDeleted { get; set; }
 
+    public string? SerializedErrors { get; set; }
+
     public SyncStatus SyncStatus { get; set; } = SyncStatus.Synced;
+    
 }

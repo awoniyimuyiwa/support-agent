@@ -3,6 +3,7 @@
 
 @using System.Collections.Immutable
 @using System.Net
+@using Api.Contracts
 @using Microsoft.AspNetCore.Components.Authorization
 @using Web.Client.Data
 @using Web.Client.Extensions
@@ -11,7 +12,7 @@
 
 @inject ApiClient ApiClient
 @inject IJSRuntime JS
-@inject ISyncService SyncService
+@inject SyncService SyncService
 @inject AuthenticationStateProvider AuthStateProvider
 @inject ILogger<SyncCoordinator> Logger
 @inject NavigationManager Nav
@@ -39,7 +40,7 @@
                     Please pull down fresh cloud data to review and merge your data.
                 </p>
                 <div class="d-flex gap-2">
-                    <button type="button" class="btn btn-warning btn-sm fw-bold px-3 shadow-sm" @onclick="ForceManualRefresh" disabled="@_isRefreshing">
+                    <button type="button" class="btn btn-warning btn-sm fw-bold px-3 shadow-sm" @onclick="HandleManualRefresh" disabled="@_isRefreshing">
                         @if (_isRefreshing)
                         {
                             <span class="spinner-border spinner-border-sm me-2" role="status"></span>
@@ -285,14 +286,13 @@
 
     private void CancelTickets() => _showTicketModal = false;
 
-    private async Task ForceManualRefresh()
+    private async Task HandleManualRefresh()
     {
         if (_isRefreshing
             || _isDisposed) { return; }
 
-        var isAdmin = await AuthStateProvider.IsAdmin();
-        var isAuthenticated = isAdmin ? isAdmin : await AuthStateProvider.IsAuthenticated();
-        if (!isAuthenticated)
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        if (!authState.User.IsAuthenticated)
         {
             return;
         }
@@ -303,7 +303,7 @@
             StateHasChanged();
 
             await SyncService.FetchTicketDeltas();
-            if (isAdmin)
+            if (authState.User.IsAdmin)
             {
                 await SyncService.FetchDocumentCategoryDeltas();
                 await SyncService.FetchDocumentDeltas();
@@ -312,7 +312,7 @@
 
             _showRaceConditionAlert = false;
 
-            // Re-render the active screen layouts with the freshly pulled data baselines
+            // Re-render
             StateHasChanged();
         }
         catch (Exception ex)
@@ -360,6 +360,7 @@
                     else if (response.IsSuccessStatusCode)
                     {
                         Logger.LogInformation("Authentication cookie session successfully extended.");
+                        await Sync();
                     }
                     else
                     {
@@ -378,15 +379,15 @@
         }
     }
 
+
     private async Task Sync()
     {
         if (_isSyncing
             || !_isOnline
             || _isDisposed) return;
 
-        var isAdmin = await AuthStateProvider.IsAdmin();
-        var isAuthenticated = isAdmin ? isAdmin : await AuthStateProvider.IsAuthenticated();
-        if (!isAuthenticated)
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        if (!authState.User.IsAuthenticated)
         {
             return;
         }
@@ -396,60 +397,43 @@
             _isSyncing = true;
             StateHasChanged();
 
-            // Flush local changes and unpack structural tuple result sets containing both states
-            var ticketConflicts = await SyncService.Sync<Ticket>(
-                ctx => ctx.Tickets,
-                SyncService.SyncTickets);
+            bool hasMoreData = true;
 
-            if (ticketConflicts.Any())
+            // Keep execution sweeping through database pages until no records remain pending
+            while (hasMoreData && _isOnline && !_isDisposed)
             {
-                _ticketConflicts = ticketConflicts;
-                _showTicketModal = true;
-            }
-            // Fetch changes
-            await SyncService.FetchTicketDeltas();
+                var processedUserSync = await RunSync();
 
-            if (isAdmin)
-            {
-                var documentCategoryConflicts = await SyncService.Sync<DocumentCategory>(
-                    ctx => ctx.DocumentCategories,
-                    SyncService.SyncDocumentCategories);
-                if (documentCategoryConflicts.Any())
+                var processedAdminSync = false;
+                if (authState.User.IsAdmin)
                 {
-                    _documentCategoryConflicts = documentCategoryConflicts;
-                    _showDocumentModal = true;
+                    processedAdminSync = await RunAllSync();
                 }
-                await SyncService.FetchDocumentCategoryDeltas();
 
-                var documentConflicts = await SyncService.Sync<Document>(
-                    ctx => ctx.Documents,
-                    SyncService.SyncDocuments);
-                if (documentConflicts.Any())
-                {
-                    _documentConflicts = documentConflicts;
-                    _showDocumentModal = true;
-                }
-                await SyncService.FetchDocumentDeltas();
+                // Determine if any operations processed data (implying there might be more batches)
+                hasMoreData = processedUserSync || processedAdminSync;
 
-                var documentVersionConflicts = await SyncService.Sync<DocumentVersion>(
-                    ctx => ctx.DocumentVersions,
-                    SyncService.SyncDocumentVersions);
-                if (documentVersionConflicts.Any())
+                // Stop looping immediately if a conflict modal opened to wait for user choice
+                if (_showTicketModal 
+                    || _showDocumentModal 
+                    || _showDocumentCategoryModal 
+                    || _showDocumentVersionModal)
                 {
-                    _documentVersionConflicts = documentVersionConflicts;
-                    _showDocumentVersionModal = true;
+                    break;
                 }
-                await SyncService.FetchDocumentVersionDeltas();
+
+                if (hasMoreData)
+                {
+                    // Throttling step: Yield thread to keep Blazor fluid and let network rest
+                    await Task.Delay(200, _cts?.Token ?? default);
+                }
             }
         }
         catch (HttpRequestException ex)
         {
             if (ex.StatusCode == HttpStatusCode.Conflict)
             {
-                // Mid-flight collision intercepted
-                // Turn on the user-facing alert state. Do not execute background downloads
                 _showRaceConditionAlert = true;
-
                 Logger.LogError(ex, ex.Message);
             }
             else
@@ -466,6 +450,71 @@
             _isSyncing = false;
             StateHasChanged();
         }
+    }
+
+    private async Task<bool> RunSync()
+    {
+        var ticketConflicts = await SyncService.Sync<Ticket>(
+            ctx => ctx.Tickets,
+            SyncService.SyncTickets);
+
+        if (ticketConflicts.Any())
+        {
+            _ticketConflicts = ticketConflicts;
+            _showTicketModal = true;
+            return true; // Records were active
+        }
+
+        // Fetch changes
+        await SyncService.FetchTicketDeltas();
+
+        // Return true if any local updates were pushed out (checks batch count bounds)
+        return ticketConflicts.Count >= Constants.MaxLengthOfList;
+    }
+
+    private async Task<bool> RunAllSync()
+    {
+        var entitiesProcessed = false;
+
+        var documentCategoryConflicts = await SyncService.Sync<DocumentCategory>(
+            ctx => ctx.DocumentCategories,
+            SyncService.SyncDocumentCategories);
+        if (documentCategoryConflicts.Any())
+        {
+            _documentCategoryConflicts = documentCategoryConflicts;
+            _showDocumentCategoryModal = true;
+            entitiesProcessed = true;
+        }
+        await SyncService.FetchDocumentCategoryDeltas();
+        if (documentCategoryConflicts.Count >= Constants.MaxLengthOfList) entitiesProcessed = true;
+
+        var documentConflicts = await SyncService.Sync<Document>(
+            ctx => ctx.Documents,
+            SyncService.SyncDocuments);
+        if (documentConflicts.Any())
+        {
+            _documentConflicts = documentConflicts;
+            _showDocumentModal = true;
+            entitiesProcessed = true;
+        }
+        await SyncService.FetchDocumentDeltas();
+        if (documentConflicts.Count >= Constants.MaxLengthOfList) entitiesProcessed = true;
+
+        entitiesProcessed = await SyncService.CreateDocumentVersions();
+
+        var documentVersionConflicts = await SyncService.Sync<DocumentVersion>(
+                ctx => ctx.DocumentVersions,
+                SyncService.SyncDocumentVersions);
+        if (documentVersionConflicts.Any())
+        {
+            _documentVersionConflicts = documentVersionConflicts;
+            _showDocumentVersionModal = true;
+            entitiesProcessed = true;
+        }
+        await SyncService.FetchDocumentVersionDeltas();
+        if (documentVersionConflicts.Count >= Constants.MaxLengthOfList) entitiesProcessed = true;
+
+        return entitiesProcessed;
     }
 
     private async Task UnregisterNetworkListenersAsync(IJSObjectReference module)

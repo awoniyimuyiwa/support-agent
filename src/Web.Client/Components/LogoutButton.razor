@@ -28,7 +28,7 @@
             Logger.LogInformation("Initiating API-driven logout sequence...");
 
             // Fire the proxy-aligned API endpoint to wipe the cookie
-            var response = await ApiClient.Logout();
+            using var response = await ApiClient.Logout();
 
             if (response.IsSuccessStatusCode)
             {

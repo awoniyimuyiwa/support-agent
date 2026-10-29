@@ -7,12 +7,11 @@
   Instead, the cascading state container task is registered globally via the background service layer
   (builder.Services.AddCascadingAuthenticationState()) in both Server and WebAssembly Program.cs pipelines.
   
-  This prevents nested duplicate cascade conflicts and synchronization loops across the runtime handoff, 
+  This prevents nested duplicate cascade conflicts and synchronization loops across the runtime, 
   while ensuring that AuthorizeView components across all assemblies cleanly resolve user security contexts.
 *@
 <Router AppAssembly="typeof(Routes).Assembly">
     <Found Context="routeData">        
-        <!-- GLOBAL ERROR BOUNDARY INSERTION -->
         <ErrorBoundary @ref="_errorBoundary">
             <ChildContent>
                 <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(MainLayout)">
@@ -30,7 +29,7 @@
             </ChildContent>
             
             <ErrorContent Context="exception">
-                <!-- Fall-back UI markup segment rendered instantly upon any unhandled component/action crash -->
+                <!-- Rendered for any unhandled component/action crash -->
                 <LayoutView Layout="typeof(MainLayout)">
                     <div class="p-4 m-4 card border-danger bg-danger-subtle text-danger-emphasis shadow-sm animate-fade-in font-sans-serif">
                         <h4 class="fw-bold d-flex align-items-center gap-2 m-0 text-danger">
@@ -66,13 +65,12 @@
 
     protected override void OnParametersSet()
     {
-        // CRITICAL UX RECOVERY: Clears the crash state memory data flags automatically 
-        // whenever the user attempts to move to a different application route link page
-        _errorBoundary?.Recover();
+        RecoverFromError();
     }
 
     private void RecoverFromError()
     {
+        // Clears crash state when the user moves to a different page
         _errorBoundary?.Recover();
     }
 }

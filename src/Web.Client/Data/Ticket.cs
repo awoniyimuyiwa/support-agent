@@ -22,5 +22,7 @@ public class Ticket : ISyncableEntity
 
     public bool IsDeleted { get; set; }
 
+    public string? SerializedErrors { get; set; }
+
     public SyncStatus SyncStatus { get; set; } = SyncStatus.Synced;
 }

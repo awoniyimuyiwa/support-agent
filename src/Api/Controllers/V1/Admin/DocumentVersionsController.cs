@@ -48,7 +48,7 @@ public class DocumentVersionsController(
     /// <response code="401">Returned when the user is not authenticated.</response>
     /// <response code="403">Returned when the user is not authorized to access this resource.</response>
     [CreatesUploadUrl]
-    [HttpPost("create-upload-urls")]
+    [HttpPost("upload-urls")]
     [Idempotent]
     [ProducesResponseType(typeof(UploadUrlsResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
@@ -59,19 +59,20 @@ public class DocumentVersionsController(
             return Ok(new UploadUrlsResponse(ReadOnlyDictionary<Guid, UploadUrlsResponseItem>.Empty));
         }
 
-        var itemIdDtoMap = input.Items.ToDictionary(
-            item => item.ItemId,
-            item => new FileDto(Guid.NewGuid(), item.FileType));
+        var dtos = input.Items
+            .Select(item => new FileDto(Guid.NewGuid(), item.FileType))
+            .ToList();
 
-        var dtos = itemIdDtoMap.Values.ToList();
+        // Generate the signed URLs using the internal File IDs
         var dtoIdUrlMap = fileStorageService.GenerateUploadUrls(
             dtos,
             _fileStorageOptions.DocumentsContainerName);
 
         // Link client's ItemId to url
-        var itemIdUrlMap = itemIdDtoMap.ToDictionary(
-            kvp => kvp.Key,                             
-            kvp => new UploadUrlsResponseItem(kvp.Value.Id, dtoIdUrlMap[kvp.Value.Id]));
+        var itemIdUrlMap = input.Items.Zip(dtos, (item, dto) => new { item.ItemId, dto })
+            .ToDictionary(
+                x => x.ItemId,
+                x => new UploadUrlsResponseItem(x.dto.Id, dtoIdUrlMap[x.dto.Id]));
 
         return Ok(new UploadUrlsResponse(itemIdUrlMap));
     }
@@ -84,10 +85,10 @@ public class DocumentVersionsController(
     /// <response code="400">When there are validation errors</response>
     /// <response code="401">When user is not authenticated.</response>
     /// <response code="403">When the user is not authorized to access this resource.</response>
-    [HttpPost("create")]
+    [HttpPost]
     [Idempotent]
     [ProducesResponseType(typeof(CreateDocumentVersionResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(Microsoft.AspNetCore.Mvc.ValidationProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<CreateDocumentVersionResponse>> Create(

@@ -235,11 +235,12 @@ builder.Services.AddRazorComponents()
         options.SerializeAllClaims = true;
      });
 
+
 // Register dummy service implementations to support safe server-side pre-rendering
 builder.Services.AddDbContextFactory<ApplicationDbContext>(options =>
     options.UseSqlite("Data Source=:memory:"));
 builder.Services.AddScoped(typeof(ISqliteWasmDbContextFactory<>), typeof(ServerSqliteWasmDbContextFactory<>));
-builder.Services.AddScoped<ISyncService, ServerSyncService>();
+
 
 // Enable YARP mapping layers.
 builder.Services.AddHttpForwarder();

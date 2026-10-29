@@ -3,7 +3,7 @@
 @inherits LayoutComponentBase
 
 @*
-1. This file inside 'Web.Client' serves as the single authoritative master layout wrapper for the app.
+1. This file serves as the single authoritative master layout wrapper for the app.
    The matching 'MainLayout.razor' (and any companion .css files) inside the server project directory path
    (Web/Components/Layout/) must be removed to prevent layout ambiguities and CSS collisions.
 
@@ -24,9 +24,7 @@
     <main>
         <!-- 
            Using d-flex and justify-content-between keeps Breadcrumbs on the left 
-           and UserProfileMenu on the right while maintaining perfect compliance 
-           with default Blazor template layout mechanics.
-        -->
+           and UserProfileMenu on the right -->
         <div class="top-row px-4 d-flex justify-content-between align-items-center bg-dark text-white border-bottom border-secondary-subtle">
             <!-- Left side Breadcrumbs Layout -->
             <div class="d-flex align-items-center py-1">
@@ -48,7 +46,10 @@
     </main>
 </div>
 
-<SyncCoordinator />
+@if (OperatingSystem.IsBrowser())
+{
+    <SyncCoordinator />
+}
 
 <div id="blazor-error-ui" data-nosnippet>
     An unhandled error has occurred.

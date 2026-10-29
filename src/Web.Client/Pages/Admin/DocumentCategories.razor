@@ -17,7 +17,6 @@
 <CustomPageTitle Value="Document Categories" />
 
 <div class="p-4 animate-fade-in">
-    <!-- Header Layout Block -->
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div class="d-flex align-items-center gap-3">
             <div class="bg-info-subtle text-info-emphasis rounded p-2.5 d-inline-flex align-items-center justify-content-center shadow-sm">
@@ -64,7 +63,7 @@
             <div class="col-md-3">
                 <label class="form-label small fw-bold text-secondary text-uppercase">Sort By</label>
                 <select class="form-select" @bind="_filter.SortColumn" @bind:after="ApplyFilter">
-                    <option value="@nameof(DocumentCategory.Name)">Category Name</option>
+                    <option value="@nameof(DocumentCategory.Name)">Name</option>
                     <option value="@nameof(DocumentCategory.CreatedAt)">Created Date</option>
                     <option value="@nameof(DocumentCategory.UpdatedAt)">Updated Date</option>
                 </select>
@@ -109,15 +108,21 @@
                     {
                         @foreach (var category in _categories)
                         {
-                            <tr class="animate-fade-in">
+                            <tr class="animate-fade-in @(!string.IsNullOrWhiteSpace(category.SerializedErrors) ? "table-danger-light border-start border-danger border-3" : "")">
                                 <td class="ps-4 fw-mono text-secondary">#@category.Id.ToString()[..8]</td>
-                                <td class="fw-semibold text-dark">@category.Name</td>
+                                <td class="fw-semibold text-dark">
+                                    @category.Name
+                                    @if (!string.IsNullOrWhiteSpace(category.SerializedErrors))
+                                    {
+                                        <span class="badge bg-danger ms-1 text-white" title="Sync Rejected">Error</span>
+                                    }
+                                </td>
                                 <td class="text-muted">@(category.Description ?? "No description provided.")</td>
                                 <td class="text-secondary">@category.CreatedAt.ToLocalTime().ToString("g")</td>
                                 <td class="text-secondary">@category.UpdatedAt.ToLocalTime().ToString("g")</td>
                                 <td class="pe-4 text-end">
                                     <button class="btn btn-outline-secondary btn-sm border-0" @onclick="() => OpenEditModal(category)" title="Edit">
-                                        <span class="bi bi-pencil-square"></span>
+                                        <span class="bi @(!string.IsNullOrWhiteSpace(category.SerializedErrors) ? "bi-exclamation-circle-fill text-danger" : "bi-pencil-square")"></span>
                                     </button>
                                     <button class="btn btn-outline-danger btn-sm border-0" @onclick="() => Delete(category.Id)" title="Delete">
                                         <span class="bi bi-trash3"></span>
@@ -137,36 +142,41 @@
                 OnPageChanged="ApplyFilter" />
 </div>
 
+
 @if (_showModal)
 {
     <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);" role="dialog">
         <div class="modal-dialog modal-dialog-centered" role="document">
             <div class="modal-content border-0 shadow-lg">
-                <div class="modal-header bg-light">
-                    <h5 class="modal-title fw-bold text-dark">@(_categoryEditedId.HasValue ? "Edit" : "Create") Document Category</h5>
-                    <button type="button" class="btn-close" @onclick="CloseModal" aria-label="Close"></button>
-                </div>
-                <EditForm Model="_inputModel" OnValidSubmit="Save">
+                <EditForm EditContext="@_editContext" OnValidSubmit="Save">
                     <DataAnnotationsValidator />
+
+                    <div class="modal-header bg-light">
+                        <h5 class="modal-title fw-bold text-dark">
+                            <span class="bi @(_categoryEditedId.HasValue ? "bi-pencil-square" : "bi-plus-circle") me-2"></span>
+                            @(_categoryEditedId.HasValue ? "Edit" : "Create")
+                        </h5>
+                        <button type="button" class="btn-close" @onclick="CloseModal" aria-label="Close"></button>
+                    </div>
 
                     <div class="modal-body py-4">
                         <div class="mb-3">
-                            <label for="categoryName" class="form-label small fw-bold text-secondary text-uppercase">Name</label>
-                            <InputText id="categoryName" class="form-control" placeholder="e.g., Legal Templates, Support Guides" @bind-Value="_inputModel.Name" />
-                            <ValidationMessage For="() => _inputModel.Name" class="text-danger small mt-1" />
+                            <label class="form-label small fw-bold text-secondary text-uppercase">Name</label>
+                            <InputText @bind-Value="_inputModel.Name" class="form-control" placeholder="Enter category descriptive header" />
+                            <ValidationMessage For="@(() => _inputModel.Name)" class="text-danger small mt-1 d-block fw-semibold" />
                         </div>
 
                         <div class="mb-0">
-                            <label for="categoryDesc" class="form-label small fw-bold text-secondary text-uppercase">Description (Optional)</label>
-                            <InputTextArea id="categoryDesc" class="form-control" rows="3" placeholder="Provide a summary explaining what documents belong in this category..." @bind-Value="_inputModel.Description" />
-                            <ValidationMessage For="() => _inputModel.Description" class="text-danger small mt-1" />
+                            <label class="form-label small fw-bold text-secondary text-uppercase">Description</label>
+                            <InputTextArea @bind-Value="_inputModel.Description" class="form-control" rows="3" placeholder="Enter optional notes explaining file organization rules" />
+                            <ValidationMessage For="@(() => _inputModel.Description)" class="text-danger small mt-1 d-block fw-semibold" />
                         </div>
                     </div>
 
                     <div class="modal-footer bg-light border-0">
                         <button type="button" class="btn btn-outline-secondary fw-semibold px-4" @onclick="CloseModal">Cancel</button>
-                        <button type="submit" class="btn btn-primary fw-semibold px-4 d-flex align-items-center gap-2">
-                            <span class="bi bi-check-circle-fill"></span> Save
+                        <button type="submit" class="btn btn-primary fw-semibold px-4">
+                            <span class="bi bi-check-circle-fill me-1"></span> Save
                         </button>
                     </div>
                 </EditForm>
@@ -185,10 +195,19 @@
     private Guid? _categoryEditedId = null;
     private CancellationTokenSource? _debounceCts;
 
+    private EditContext? _editContext;
+    private ValidationMessageStore? _messageStore;
+
     public void Dispose()
     {
         _debounceCts?.Cancel();
         _debounceCts?.Dispose();
+        
+        // Unsubscribe to avoid memory leaks
+        if (_editContext is not null)
+        {
+            _editContext.OnFieldChanged -= HandleFieldChanged;
+        }
     }
 
     protected override async Task OnInitializedAsync()
@@ -201,10 +220,17 @@
 
     private void CloseModal()
     {
+        if (_editContext is not null)
+        {
+            _editContext.OnFieldChanged -= HandleFieldChanged;
+        }
+
         _showModal = false;
         _categoryEditedId = null;
+        _editContext = null;
+        _messageStore = null;
     }
-
+      
     private async Task Delete(Guid id)
     {
         using var context = await DbContextFactory.CreateDbContextAsync();
@@ -218,6 +244,17 @@
             await context.SaveChangesAsync();
             await ApplyFilter();
         }
+    }
+
+    private void HandleFieldChanged(object? sender, FieldChangedEventArgs e)
+    {
+        if (_messageStore is null || _editContext is null) return;
+
+        // Clear only the error associated with the specific field the user modified
+        _messageStore.Clear(e.FieldIdentifier);
+        
+        // Notify the UI to instantly drop the validation styling flag
+        _editContext.NotifyValidationStateChanged();
     }
 
     private async Task OnSearchInputDebounced(ChangeEventArgs e)
@@ -243,6 +280,13 @@
     {
         _categoryEditedId = null;
         _inputModel = new DocumentCategoryModel();
+        
+        _editContext = new EditContext(_inputModel);
+        _messageStore = new ValidationMessageStore(_editContext);
+        
+        // Attach listener hook
+        _editContext.OnFieldChanged += HandleFieldChanged;
+        
         _showModal = true;
     }
 
@@ -254,6 +298,29 @@
             Name = category.Name,
             Description = category.Description
         };
+
+        _editContext = new EditContext(_inputModel);
+        _messageStore = new ValidationMessageStore(_editContext);
+        
+        _editContext.OnFieldChanged += HandleFieldChanged;
+
+        if (!string.IsNullOrWhiteSpace(category.SerializedErrors))
+        {
+            var serverErrors = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string[]>>(category.SerializedErrors);
+            if (serverErrors is not null)
+            {
+                foreach (var err in serverErrors)
+                {
+                    var fieldId = new FieldIdentifier(_inputModel, err.Key);
+                    foreach (var msg in err.Value)
+                    {
+                        _messageStore.Add(fieldId, msg);
+                    }
+                }
+                _editContext.NotifyValidationStateChanged();
+            }
+        }
+
         _showModal = true;
     }
 
@@ -265,8 +332,11 @@
 
     private async Task Save()
     {
+        if (_editContext is null || !_editContext.Validate()) return;
+
         using var context = await DbContextFactory.CreateDbContextAsync();
         var now = DateTime.UtcNow;
+        
         if (_categoryEditedId.HasValue)
         {
             var existingCategory = await context.DocumentCategories.FindAsync(_categoryEditedId.Value);
@@ -275,10 +345,12 @@
                 existingCategory.Name = _inputModel.Name.Trim();
                 existingCategory.Description = string.IsNullOrWhiteSpace(_inputModel.Description) ? null : _inputModel.Description.Trim();
                 existingCategory.UpdatedAt = now;
+                
+                existingCategory.SerializedErrors = null;
                 existingCategory.SyncStatus = SyncStatus.PendingUpdate;
+                
                 await context.SaveChangesAsync();
-                _categoryEditedId = null;
-                _showModal = false;
+                CloseModal();
                 await ApplyFilter();
             }
         }
@@ -296,7 +368,7 @@
             };
             context.DocumentCategories.Add(newCategory);
             await context.SaveChangesAsync();
-            _showModal = false;
+            CloseModal();
             _filter.Reset();
             await ApplyFilter();
         }
@@ -333,9 +405,9 @@
         };
 
         _categories = await query
-        .Skip((_filter.PageNumber - 1) * _filter.PageSize)
-        .Take(_filter.PageSize)
-        .ToListAsync();
+            .Skip((_filter.PageNumber - 1) * _filter.PageSize)
+            .Take(_filter.PageSize)
+            .ToListAsync();
         StateHasChanged();
     }
 }

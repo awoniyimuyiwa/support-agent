@@ -91,7 +91,7 @@
                 <button class="btn btn-outline-secondary w-100 fw-semibold d-flex align-items-center justify-content-center"
                         @onclick="ToggleSortDirection">
                     <span class="bi @(_filter.SortDescending ? "bi-sort-down-alt" : "bi-sort-up")"></span>
-                     <span>@(_filter.SortDescending ? "Descending" : "Ascending")</span>
+                    <span>@(_filter.SortDescending ? "Descending" : "Ascending")</span>
                 </button>
             </div>
         </div>
@@ -129,22 +129,42 @@
                     {
                         @foreach (var ticket in _tickets)
                         {
-                            <tr class="animate-fade-in">
+                            @* Highlight rows containing outstanding background server sync errors *@
+                            <tr class="animate-fade-in @(!string.IsNullOrWhiteSpace(ticket.SerializedErrors) ? "table-danger-light border-start border-danger border-3" : "")">
                                 <td class="ps-4 fw-mono text-secondary">#@ticket.Id.ToString()[..8]</td>
-                                <td class="fw-semibold text-dark">@ticket.Title</td>
+                                <td class="fw-semibold text-dark">
+                                    @ticket.Title
+                                    @if (!string.IsNullOrWhiteSpace(ticket.SerializedErrors))
+                                    {
+                                        <span class="badge bg-danger ms-1 text-white animate-pulse" title="Sync Rejected">Error</span>
+                                    }
+                                </td>
                                 <td class="text-truncate text-muted" style="max-width: 250px;">@ticket.Description</td>
                                 <td><TicketPriorityBadge Priority="ticket.Priority" /></td>
                                 <td><TicketStatusBadge Status="ticket.Status" /></td>
                                 @if (IsAdmin)
                                 {
-                                    <td><span class="badge bg-dark-subtle text-dark-emphasis font-monospace">@ticket.SyncStatus</span></td>
+                                    <td>
+                                        @if (!string.IsNullOrWhiteSpace(ticket.SerializedErrors))
+                                        {
+                                            <span class="badge bg-danger text-white border-0">Sync Error</span>
+                                        }
+                                        else if (ticket.SyncStatus == SyncStatus.PendingInsert || ticket.SyncStatus == SyncStatus.PendingUpdate)
+                                        {
+                                            <span class="badge bg-info text-dark border"><span class="spinner-border spinner-border-sm me-1" style="width:0.7rem; height:0.7rem;"></span> Queued</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-dark-subtle text-dark-emphasis font-monospace">@ticket.SyncStatus</span>
+                                        }
+                                    </td>
                                 }
                                 <td class="pe-4 text-end">
                                     <!-- Mutation Guard Rule Locks: Admins skip constraints; standard users can mutate only if Open -->
                                     @if (IsAdmin || ticket.Status == TicketStatus.Open)
                                     {
                                         <button class="btn btn-outline-secondary btn-sm border-0" @onclick="() => OpenEditModal(ticket)" title="Edit">
-                                            <span class="bi bi-pencil-square"></span>
+                                            <span class="bi @(!string.IsNullOrWhiteSpace(ticket.SerializedErrors) ? "bi-exclamation-circle-fill text-danger" : "bi-pencil-square")"></span>
                                         </button>
                                         <button class="btn btn-outline-danger btn-sm border-0" @onclick="() => PromptDelete(ticket)" title="Delete">
                                             <span class="bi bi-trash3"></span>
@@ -156,6 +176,34 @@
                                     }
                                 </td>
                             </tr>
+
+                            @* Inline background error display tray *@
+                            @if (!string.IsNullOrWhiteSpace(ticket.SerializedErrors))
+                            {
+                                var errorMap = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string[]>>(ticket.SerializedErrors);
+                                if (errorMap is not null && errorMap.Count > 0)
+                                {
+                                    <tr class="table-danger-light">
+                                        <td colspan="@(IsAdmin ? 7 : 6)" class="ps-5 pe-4 py-2 font-sans-serif text-danger bg-opacity-10 border-bottom">
+                                            <div class="card card-body bg-white border-danger shadow-xs py-2 mb-1">
+                                                <div class="fw-bold text-uppercase small text-secondary mb-1"><span class="bi bi-bug-fill me-1"></span> Server Rejection Reasons</div>
+                                                <ul class="list-unstyled mb-0 small">
+                                                    @foreach (var error in errorMap)
+                                                    {
+                                                        @foreach (var msg in error.Value)
+                                                        {
+                                                            <li class="d-flex align-items-start gap-1 text-danger">
+                                                                <span class="bi bi-dot mt-0.5"></span>
+                                                                <span><strong>@error.Key:</strong> @msg</span>
+                                                            </li>
+                                                        }
+                                                    }
+                                                </ul>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                            }
                         }
                     }
                 </tbody>
@@ -171,24 +219,29 @@
 
 @if (_showUpsertModal)
 {
-    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);" role="dialog">
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0, 0, 0, 0.5);" role="dialog">
         <div class="modal-dialog modal-dialog-centered modal-lg" role="document">
             <div class="modal-content border-0 shadow-lg">
-                <div class="modal-header bg-light">
-                    <h5 class="modal-title fw-bold text-dark">@(_ticketEditedId.HasValue ? "Edit" : "Open") Ticket</h5>
-                    <button type="button" class="btn-close" @onclick="CloseUpsertModal" aria-label="Close"></button>
-                </div>
-
-                <EditForm Model="_inputModel" OnValidSubmit="Submit">
+                <EditForm EditContext="@_editContext" OnValidSubmit="Submit">
                     <DataAnnotationsValidator />
 
+                    <div class="modal-header bg-light">
+                        <h5 class="modal-title fw-bold text-dark">
+                            <span class="bi @(_ticketEditedId.HasValue ? "bi-pencil-square" : "bi-plus-circle") me-2"></span>
+                            @(_ticketEditedId.HasValue ? "Edit Ticket" : "Open Ticket")
+                        </h5>
+                        <button type="button" class="btn-close" @onclick="CloseUpsertModal" aria-label="Close"></button>
+                    </div>
+
                     <div class="modal-body py-4">
+                        @* Title Input Area *@
                         <div class="mb-3">
                             <label class="form-label small fw-bold text-secondary text-uppercase">Title</label>
                             <InputText class="form-control" placeholder="Summary subject headline..." @bind-Value="_inputModel.Title" />
-                            <ValidationMessage For="() => _inputModel.Title" class="text-danger small mt-1" />
+                            <ValidationMessage For="() => _inputModel.Title" class="text-danger small mt-1 d-block fw-semibold" />
                         </div>
 
+                        @* Administrative Control Field Mappings *@
                         @if (IsAdmin)
                         {
                             <div class="row g-3 mb-3">
@@ -200,6 +253,7 @@
                                             <option value="@val">@val.ToString()</option>
                                         }
                                     </InputSelect>
+                                    <ValidationMessage For="() => _inputModel.Priority" class="text-danger small mt-1 d-block fw-semibold" />
                                 </div>
 
                                 <div class="col-md-6">
@@ -210,6 +264,7 @@
                                             <option value="@val">@val.ToString()</option>
                                         }
                                     </InputSelect>
+                                    <ValidationMessage For="() => _inputModel.Status" class="text-danger small mt-1 d-block fw-semibold" />
                                 </div>
                             </div>
                         }
@@ -217,7 +272,7 @@
                         <div class="mb-0">
                             <label class="form-label small fw-bold text-secondary text-uppercase">Description</label>
                             <InputTextArea class="form-control" rows="5" placeholder="Provide log metrics or requirements explicitly..." @bind-Value="_inputModel.Description" />
-                            <ValidationMessage For="() => _inputModel.Description" class="text-danger small mt-1" />
+                            <ValidationMessage For="() => _inputModel.Description" class="text-danger small mt-1 d-block fw-semibold" />
                         </div>
                     </div>
 
@@ -253,10 +308,19 @@
     private int _totalPages = 1;
     private CancellationTokenSource? _debounceCts;
 
+    // Infrastructure components managing form states and sync message overrides
+    private EditContext? _editContext;
+    private ValidationMessageStore? _messageStore;
+
     public void Dispose()
     {
         _debounceCts?.Cancel();
         _debounceCts?.Dispose();
+
+        if (_editContext is not null)
+        {
+            _editContext.OnFieldChanged -= HandleFieldChanged;
+        }
     }
 
     protected override async Task OnInitializedAsync()
@@ -278,29 +342,43 @@
         if (_ticketToDelete is null) return;
 
         using var context = await DbContextFactory.CreateDbContextAsync();
+        var now = DateTime.UtcNow;
         var ticket = await context.Tickets.FindAsync(_ticketToDelete.Id);
 
         if (ticket is not null)
         {
-            // Prevent post-open deletion
             if (!IsAdmin && ticket.Status != TicketStatus.Open) return;
 
             ticket.IsDeleted = true;
             ticket.SyncStatus = SyncStatus.PendingDelete;
-            ticket.UpdatedAt = DateTime.UtcNow;
+            ticket.UpdatedAt = now;
             await context.SaveChangesAsync();
         }
 
         _showDeleteModal = false;
         _ticketToDelete = null;
         await ApplyFilter();
-
     }
 
     private void CloseUpsertModal()
     {
+        if (_editContext is not null)
+        {
+            _editContext.OnFieldChanged -= HandleFieldChanged;
+        }
+
         _showUpsertModal = false;
         _ticketEditedId = null;
+        _editContext = null;
+        _messageStore = null;
+    }
+
+    // Intercepts edits to clear target field error messages instantly
+    private void HandleFieldChanged(object? sender, FieldChangedEventArgs e)
+    {
+        if (_messageStore is null || _editContext is null) return;
+        _messageStore.Clear(e.FieldIdentifier);
+        _editContext.NotifyValidationStateChanged();
     }
 
     private async Task NavigateToPage(int page)
@@ -323,22 +401,23 @@
         try
         {
             await Task.Delay(300, token);
-
             if (!token.IsCancellationRequested)
             {
                 await ResetPage();
             }
         }
-        catch (TaskCanceledException)
-        {
-            // A new keystroke cancelled this execution.
-        }
+        catch (TaskCanceledException) { }
     }
 
     private void OpenCreateModal()
     {
         _ticketEditedId = null;
         _inputModel = new TicketModel();
+
+        _editContext = new EditContext(_inputModel);
+        _messageStore = new ValidationMessageStore(_editContext);
+        _editContext.OnFieldChanged += HandleFieldChanged;
+
         _showUpsertModal = true;
     }
 
@@ -350,8 +429,33 @@
         _inputModel = new TicketModel
         {
             Title = ticket.Title,
-            Description = ticket.Description
+            Description = ticket.Description,
+            Priority = ticket.Priority,
+            Status = ticket.Status
         };
+
+        _editContext = new EditContext(_inputModel);
+        _messageStore = new ValidationMessageStore(_editContext);
+        _editContext.OnFieldChanged += HandleFieldChanged;
+
+        // Unpack outstanding server validation synchronization failures into our UI inputs
+        if (!string.IsNullOrWhiteSpace(ticket.SerializedErrors))
+        {
+            var serverErrors = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string[]>>(ticket.SerializedErrors);
+            if (serverErrors is not null)
+            {
+                foreach (var err in serverErrors)
+                {
+                    var fieldId = new FieldIdentifier(_inputModel, err.Key);
+                    foreach (var msg in err.Value)
+                    {
+                        _messageStore.Add(fieldId, msg);
+                    }
+                }
+                _editContext.NotifyValidationStateChanged();
+            }
+        }
+
         _showUpsertModal = true;
     }
 
@@ -371,6 +475,8 @@
 
     private async Task Submit()
     {
+        if (_editContext is null || !_editContext.Validate()) return;
+
         using var context = await DbContextFactory.CreateDbContextAsync();
         var now = DateTime.UtcNow;
 
@@ -379,7 +485,6 @@
             var existing = await context.Tickets.FindAsync(_ticketEditedId.Value);
             if (existing is not null)
             {
-                // Deny update if ticket has been processed
                 if (!IsAdmin && existing.Status != TicketStatus.Open)
                 {
                     CloseUpsertModal();
@@ -389,6 +494,9 @@
                 existing.Description = _inputModel.Description.Trim();
                 existing.Title = _inputModel.Title.Trim();
                 existing.UpdatedAt = now;
+
+                // Clear rejection parameters to re-queue back into synchronization loops
+                existing.SerializedErrors = null;
                 existing.SyncStatus = SyncStatus.PendingUpdate;
 
                 if (IsAdmin)
@@ -398,17 +506,12 @@
                 }
 
                 await context.SaveChangesAsync();
-
-                _ticketEditedId = null;
-                _showUpsertModal = false;
+                CloseUpsertModal();
                 await ApplyFilter();
             }
             else
             {
-                _ticketEditedId = null;
-                _showUpsertModal = false;
-
-                // Optional: Re-run filter just in case the ticket was deleted
+                CloseUpsertModal();
                 await ApplyFilter();
             }
         }
@@ -430,7 +533,7 @@
             context.Tickets.Add(newTicket);
             await context.SaveChangesAsync();
 
-            _showUpsertModal = false;
+            CloseUpsertModal();
             _filter.Reset();
             await ApplyFilter();
         }
@@ -452,7 +555,6 @@
         if (!string.IsNullOrWhiteSpace(_filter.SearchTerm))
         {
             var matchTerm = $"%{_filter.SearchTerm.Trim()}%";
-            // EF.Functions.Like provides high-performance, index-friendly case-insensitive searches in SQLite
             query = query.Where(t => EF.Functions.Like(t.Title, matchTerm) || EF.Functions.Like(t.Description, matchTerm));
         }
 
@@ -484,9 +586,9 @@
         if (_filter.PageNumber > _totalPages) _filter.PageNumber = _totalPages;
 
         _tickets = query
-        .Skip((_filter.PageNumber - 1) * _filter.PageSize)
-        .Take(_filter.PageSize)
-        .ToList();
+            .Skip((_filter.PageNumber - 1) * _filter.PageSize)
+            .Take(_filter.PageSize)
+            .ToList();
 
         StateHasChanged();
     }

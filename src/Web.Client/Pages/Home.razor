@@ -31,7 +31,12 @@
                     <Authorized>
                         <!-- Only visible when logged in -->
                         <span class="small text-secondary me-2 d-none d-sm-inline">Logged in as @context.User.Identity?.Name</span>
-                        <a href="/admin" class="btn btn-primary fw-semibold btn-sm px-4 py-2 rounded-3 shadow-sm custom-nav-btn">
+
+                        @{
+                            var targetRoute = context.User.IsInRole(Domain.Shared.Constants.AdminRoleName) ? "/admin" : "/dashboard";
+                        }
+
+                        <a href="@targetRoute" class="btn btn-primary fw-semibold btn-sm px-4 py-2 rounded-3 shadow-sm custom-nav-btn">
                             Go to Dashboard <span class="bi bi-speedometer2 ms-1"></span>
                         </a>
                     </Authorized>
@@ -88,14 +93,14 @@
                     <span class="bi bi-wifi-off text-warning me-1"></span> Local Cache Engine Active
                 </div>
             </div>
-            
+
             <!-- Lightweight Mock Interface Body -->
             <div class="p-3 bg-light rounded-3 text-start">
                 <div class="d-flex justify-content-between align-items-center mb-3">
                     <div class="h6 fw-bold text-dark mb-0">⚡ Active Local Queue Ledger</div>
                     <span class="badge bg-primary text-white rounded-2 px-2 py-1 small">2 Unsaved Operations</span>
                 </div>
-                
+
                 <div class="bg-white border rounded-3 p-3 mb-2 d-flex justify-content-between align-items-center shadow-xs">
                     <div class="d-flex align-items-center gap-3">
                         <span class="bi bi-ticket-detailed text-warning fs-4"></span>
@@ -108,7 +113,7 @@
                         Pending Sync
                     </span>
                 </div>
-                
+
                 <div class="bg-white border rounded-3 p-3 mb-2 d-flex justify-content-between align-items-center shadow-xs">
                     <div class="d-flex align-items-center gap-3">
                         <span class="bi bi-ticket-detailed text-success fs-4"></span>
@@ -204,5 +209,5 @@
 </div>
 
 @code {
-    // Component markup successfully fully bounded
+
 }

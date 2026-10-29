@@ -1,6 +1,5 @@
 ﻿using Microsoft.AspNetCore.Components.Authorization;
 using System.Security.Claims;
-using System.Threading.Tasks;
 
 namespace Web.Client.Extensions;
 
@@ -11,8 +10,8 @@ public static class Security
         public async Task<bool> IsAuthenticated()
         {
             var authState = await authStateProvider.GetAuthenticationStateAsync();
-            
-            return authState.User.Identity?.IsAuthenticated == true;
+
+            return authState.User.IsAuthenticated;
         }
 
         public async Task<bool> IsAdmin()
@@ -20,12 +19,25 @@ public static class Security
             var authState = await authStateProvider.GetAuthenticationStateAsync();
             var user = authState.User;
 
-            if (user.Identity?.IsAuthenticated != true)
-            {
-                return false;
-            }
+            return user.IsAdmin;
+        }
+    }
 
-            return user.IsInRole(Domain.Shared.Constants.AdminRoleName);
+    extension(ClaimsPrincipal user)
+    {
+        public bool IsAuthenticated => user.Identity?.IsAuthenticated == true;
+
+        public bool IsAdmin
+        {
+            get
+            {
+                if (!user.IsAuthenticated)
+                {
+                    return false;
+                }
+
+                return user.IsInRole(Domain.Shared.Constants.AdminRoleName);
+            }
         }
     }
 }
