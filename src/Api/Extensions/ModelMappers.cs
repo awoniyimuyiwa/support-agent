@@ -133,23 +133,23 @@ public static class ModelMappers
                UpdatedTo: model.UpdatedTo);
     }
 
-    extension (TicketSyncItem model)
+    extension (TicketSyncRequestItem model)
     {
-        public TicketDto Dto =>
+        public TicketSyncItemDto Dto =>
             new(
                 model.Id,
                 model.Description,
-                Domain.Shared.TicketPriority.Low,
-                Domain.Shared.TicketStatus.Open,
+                Domain.Shared.TicketPriority.Low, // default for non admins
+                Domain.Shared.TicketStatus.Open, // default for non admins
                 model.Title,
                 model.CreatedAt,
                 model.UpdatedAt,
                 model.ConcurrencyStamp);
     }
 
-    extension(FullTicketSyncItem model)
+    extension(FullTicketSyncRequestItem model)
     {
-        public TicketDto Dto =>
+        public TicketSyncItemDto Dto =>
             new(
                 model.Id,
                 model.Description,

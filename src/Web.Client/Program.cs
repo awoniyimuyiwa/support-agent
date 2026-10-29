@@ -61,20 +61,30 @@ var host = builder.Build();
 var logger = host.Services.GetRequiredService<ILogger<Program>>();
 logger.LogInformation("Web.Client WebAssembly engine has successfully booted inside the browser sandbox!");
 
-// Execute Async Database and Queue Validation Boot Sequence before launching the UI
-// Pass the target bootLogger instance straight down to support structural data writing loops
-await InitializeStorage(host.Services, logger);
-
+if (OperatingSystem.IsBrowser())
+{
+    await InitializeStorage(host.Services, logger);
+}
+   
 AppDomain.CurrentDomain.UnhandledException += (sender, errorArgs) =>
 {
     if (errorArgs.ExceptionObject is Exception exception)
     {
         // Instantly routes to the browser console logs
-        logger.LogError(exception, exception.Message);
+        logger.LogError(exception, "Client side unhandled exception:{Message}", exception.Message);
 
         // Optional: Call ApiClient inside this handler to push 
         // stack traces back to BFF server
     }
+};
+
+// Catch unhandled exceptions in async background tasks (like sync loops)
+TaskScheduler.UnobservedTaskException += (sender, errorArgs) =>
+{
+    logger.LogError(errorArgs.Exception, "Unhandled background task exception: {Message}", errorArgs.Exception.Message);
+
+    // Prevent background failure from potentially destabilizing the WASM runtime thread
+    errorArgs.SetObserved();
 };
 
 await host.RunAsync();

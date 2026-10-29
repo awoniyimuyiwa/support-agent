@@ -137,9 +137,10 @@ public static class DtoMappers
 
     extension(TicketDto dto)
     {
-        public FullTicketSyncItem Model =>
+        public TicketSyncResponseItem Model =>
             new(
                 dto.Id,
+                dto.CreatedByUserId,
                 dto.Description,
                 dto.Priority,
                 dto.Status,

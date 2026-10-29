@@ -28,12 +28,12 @@ public class TicketsController(
     /// <param name="pageSize">The number of records per page chunk slice.</param>
     /// <response code="200">When there are no errors</response>
     [HttpGet("stream-deltas")]
-    [ProducesResponseType(typeof(DeltaResponse<FullTicketSyncItem>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<DeltaResponse<FullTicketSyncItem>>> StreamDeltas(
+    [ProducesResponseType(typeof(DeltaResponse<TicketSyncResponseItem>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<DeltaResponse<TicketSyncResponseItem>>> StreamDeltas(
         [FromQuery][MaxLength(Domain.Shared.Constants.StringMaxLength)] string? next,
         [FromQuery] int pageSize = Domain.Shared.Constants.MaxPageSize)
     {
-        var cursor = next.ToDeltaCursor<FullTicketSyncItem>(dataProtector);
+        var cursor = next.ToDeltaCursor<TicketSyncResponseItem>(dataProtector);
 
         if (!string.IsNullOrWhiteSpace(next) && cursor is null)
         {
@@ -50,7 +50,7 @@ public class TicketsController(
             pageSize,
             HttpContext.RequestAborted);
 
-        return Ok(new DeltaResponse<FullTicketSyncItem>(
+        return Ok(new DeltaResponse<TicketSyncResponseItem>(
             [.. cursorList.Items.Select(t => t.Model)],
             cursorList.Next,
             until));
@@ -65,10 +65,10 @@ public class TicketsController(
     /// <response code="409">When there are conflicts during synchronization.</response>
     [HttpPost("sync")]
     [Idempotent]
-    [ProducesResponseType(typeof(SyncResponse<FullTicketSyncItem>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(SyncResponse<TicketSyncResponseItem>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
-    public async Task<ActionResult<SyncResponse<FullTicketSyncItem>>> Sync(
+    public async Task<ActionResult<SyncResponse<TicketSyncResponseItem>>> Sync(
         [FromBody] TicketSyncRequest request)
     {
         // Any thrown exception bubbles up to the global exception handler
@@ -78,6 +78,6 @@ public class TicketsController(
             isAdmin: false,
             HttpContext.RequestAborted);
 
-        return Ok(new SyncResponse<FullTicketSyncItem>([.. conflicts.Select(t => t.Model)]));
+        return Ok(new SyncResponse<TicketSyncResponseItem>([.. conflicts.Select(t => t.Model)]));
     }
 }

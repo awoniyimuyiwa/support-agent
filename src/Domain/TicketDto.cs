@@ -4,6 +4,7 @@ namespace Domain;
 
 public record TicketDto(
     Guid Id,
+    Guid CreatedByUserId,
     string Description,
     TicketPriority Priority,
     TicketStatus Status,
@@ -16,6 +17,7 @@ public record TicketDto(
 public record InternalTicketDto(
     long InternalId,
     Guid ExternalId,
+    Guid CreatedByUserId,
     string Description,
     TicketPriority Priority,
     TicketStatus Status,
@@ -25,6 +27,7 @@ public record InternalTicketDto(
     string? ConcurrencyStamp,
     bool IsDeleted = false) : TicketDto(
         Id: ExternalId,
+        CreatedByUserId,
         Description,
         Priority,
         Status,

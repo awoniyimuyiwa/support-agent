@@ -4,6 +4,7 @@
 @layout EmptyLayout
 
 @using Microsoft.AspNetCore.Authorization
+@using Web.Client.Extensions
 
 <div class="landing-wrapper position-relative overflow-hidden min-vh-100 bg-light">
     <!-- Premium Ambient Background Blur Nodes -->
@@ -33,7 +34,7 @@
                         <span class="small text-secondary me-2 d-none d-sm-inline">Logged in as @context.User.Identity?.Name</span>
 
                         @{
-                            var targetRoute = context.User.IsInRole(Domain.Shared.Constants.AdminRoleName) ? "/admin" : "/dashboard";
+                            var targetRoute = context.User.IsAdmin ? "/admin" : "/dashboard";
                         }
 
                         <a href="@targetRoute" class="btn btn-primary fw-semibold btn-sm px-4 py-2 rounded-3 shadow-sm custom-nav-btn">

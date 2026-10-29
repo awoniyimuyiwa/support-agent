@@ -1,6 +1,6 @@
 ﻿@page "/dashboard"
 @rendermode InteractiveAuto
-@attribute [AllowAnonymous]
+@attribute [Authorize]
 @layout MainLayout
 
 @using Domain.Shared
@@ -8,8 +8,8 @@
 @using Microsoft.EntityFrameworkCore
 @using Web.Client.Components
 @using Web.Client.Data
+@using Web.Client.Extensions
 @inject IDbContextFactory<ApplicationDbContext> DbFactory
-@inject AuthenticationStateProvider AuthStateProvider
 
 <CustomPageTitle Value="Dashboard" />
 
@@ -21,21 +21,21 @@
                 <span class="bi bi-person-workspace fs-3"></span>
             </div>
             <div>
-                <h1 class="h3 fw-bold mb-0">Welcome Back, @_agentName</h1>
+                <h1 class="h3 fw-bold mb-0">Welcome Back, @_userName</h1>
                 <small class="text-secondary">Support Agent Productivity Desk</small>
             </div>
         </div>
         <button class="btn btn-white border shadow-sm btn-sm fw-semibold d-flex align-items-center gap-2" @onclick="RefreshStats">
-            <span class="bi bi-arrow-clockwise @_refreshingClass"></span> Refresh Workload
+            <span class="bi bi-arrow-clockwise @_refreshingClass"></span> Refresh
         </button>
     </div>
 
-    @if (_isLocallyLoading)
+    @if (_isLoading)
     {
         <!-- Smooth skeleton layout/loader preventing flash of zeros during WebAssembly initialisation -->
         <div class="d-flex flex-column align-items-center justify-content-center my-5 py-5 text-secondary">
             <div class="spinner-border text-success mb-3" role="status"></div>
-            <span class="small fw-semibold text-uppercase tracking-wider">Synchronising Local Workspace...</span>
+            <span class="small fw-semibold text-uppercase tracking-wider">Loading...</span>
         </div>
     }
     else
@@ -133,55 +133,74 @@
 
 
 @code {
-    private string _agentName = "Support Agent";
+    [CascadingParameter] private Task<AuthenticationState> AuthStateTask { get; set; } = default!;
+
+    private string _userName = "Support Agent";
     private int _myOpenTicketsCount = 0;
     private int _myPendingSyncCount = 0;
     private int _myClosedTicketsCount = 0;
     private string _refreshingClass = "";
-    private bool _isLocallyLoading = true;
+    private bool _isLoading = true;
 
     protected override async Task OnInitializedAsync()
     {
+        var authState = await AuthStateTask;
+        _userName = authState.User.Name;
+
         if (OperatingSystem.IsBrowser())
         {
             await LoadStats();
-            _isLocallyLoading = false;
+            _isLoading = false;
+            // Note: No StateHasChanged() is needed here! Blazor automatically
+            // re-renders when OnInitializedAsync finishes.
+        }
+        else
+        {
+            // On the server prerender, stop loading immediately
+            // so it sends down a clean, empty dashboard frame
+            _isLoading = false;
         }
     }
 
     private async Task RefreshStats()
     {
+        _isLoading = true;
         _refreshingClass = "spin-animation";
+        StateHasChanged();
+        await Task.Yield();
+
         await LoadStats();
-        await Task.Delay(300); // Visual buffer for action confirmation
-        _refreshingClass = "";
+
+        if (OperatingSystem.IsBrowser())
+        {
+            await Task.Delay(300); // Visual buffer for action confirmation
+            _isLoading = false;
+            _refreshingClass = "";
+        }
     }
 
     private async Task LoadStats()
-    {
-        // Resolve the authenticated user's name from claims for the welcome banner
-        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
-        var user = authState.User;
-
-        if (user.Identity?.IsAuthenticated == true)
+    { 
+        if (!OperatingSystem.IsBrowser())
         {
-            _agentName = user.FindFirst("name")?.Value
-                      ?? user.Identity.Name
-                      ?? "Support Agent";
+            return;
         }
 
+        var authState = AuthStateTask.Result;
+        var userId = authState.User.Id;
+       
         using var context = await DbFactory.CreateDbContextAsync();
 
         // Open Tickets (Active, non-deleted records)
-        _myOpenTicketsCount = await context.Tickets
-            .CountAsync(t => !t.IsDeleted && t.Status != TicketStatus.Closed);
+        _myOpenTicketsCount = await context.Tickets.CountAsync(
+            t => t.CreatedByUserId == userId && !t.IsDeleted && t.Status == TicketStatus.Open);
 
         // Pending Sync (Anything created offline or locally modified that isn't synced yet)
-        _myPendingSyncCount = await context.Tickets
-            .CountAsync(t => t.SyncStatus != SyncStatus.Synced || string.IsNullOrEmpty(t.ConcurrencyStamp));
+        _myPendingSyncCount = await context.Tickets.CountAsync(
+            t => t.CreatedByUserId == userId && t.SyncStatus != SyncStatus.Synced);
 
         // Closed/Resolved Tickets visible in the local workspace registry
-        _myClosedTicketsCount = await context.Tickets
-            .CountAsync(t => !t.IsDeleted && t.Status == TicketStatus.Closed);
+        _myClosedTicketsCount = await context.Tickets.CountAsync(
+            t => t.CreatedByUserId == userId && !t.IsDeleted && t.Status == TicketStatus.Closed);
     }
 }

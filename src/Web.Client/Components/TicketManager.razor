@@ -1,6 +1,7 @@
 ﻿@using Domain.Shared
 @using Microsoft.EntityFrameworkCore
 @using Web.Client.Data
+@using Web.Client.Extensions
 @using Web.Client.Models
 
 @inject IDbContextFactory<ApplicationDbContext> DbContextFactory
@@ -61,7 +62,7 @@
             </div>
 
             <!-- Admin-Only Sync Status Dropdown Filter -->
-            @if (IsAdmin)
+            @if (_isAdmin)
             {
                 <div class="col-md-2">
                     <label class="form-label small fw-bold text-secondary text-uppercase">Sync Status</label>
@@ -108,7 +109,7 @@
                         <th>Description</th>
                         <th>Priority</th>
                         <th>Status</th>
-                        @if (IsAdmin)
+                        @if (_isAdmin)
                         {
                             <th>Sync State</th>
                         }
@@ -119,7 +120,7 @@
                     @if (_tickets.Count == 0)
                     {
                         <tr>
-                            <td colspan="@(IsAdmin ? 7 : 6)" class="text-center p-5 text-muted">
+                            <td colspan="@(_isAdmin ? 7 : 6)" class="text-center p-5 text-muted">
                                 <span class="bi bi-folder-x fs-1 d-block mb-2 text-secondary opacity-50"></span>
                                 No tickets found matching those parameters.
                             </td>
@@ -142,7 +143,7 @@
                                 <td class="text-truncate text-muted" style="max-width: 250px;">@ticket.Description</td>
                                 <td><TicketPriorityBadge Priority="ticket.Priority" /></td>
                                 <td><TicketStatusBadge Status="ticket.Status" /></td>
-                                @if (IsAdmin)
+                                @if (_isAdmin)
                                 {
                                     <td>
                                         @if (!string.IsNullOrWhiteSpace(ticket.SerializedErrors))
@@ -161,7 +162,7 @@
                                 }
                                 <td class="pe-4 text-end">
                                     <!-- Mutation Guard Rule Locks: Admins skip constraints; standard users can mutate only if Open -->
-                                    @if (IsAdmin || ticket.Status == TicketStatus.Open)
+                                    @if (_isAdmin || ticket.Status == TicketStatus.Open)
                                     {
                                         <button class="btn btn-outline-secondary btn-sm border-0" @onclick="() => OpenEditModal(ticket)" title="Edit">
                                             <span class="bi @(!string.IsNullOrWhiteSpace(ticket.SerializedErrors) ? "bi-exclamation-circle-fill text-danger" : "bi-pencil-square")"></span>
@@ -184,7 +185,7 @@
                                 if (errorMap is not null && errorMap.Count > 0)
                                 {
                                     <tr class="table-danger-light">
-                                        <td colspan="@(IsAdmin ? 7 : 6)" class="ps-5 pe-4 py-2 font-sans-serif text-danger bg-opacity-10 border-bottom">
+                                        <td colspan="@(_isAdmin ? 7 : 6)" class="ps-5 pe-4 py-2 font-sans-serif text-danger bg-opacity-10 border-bottom">
                                             <div class="card card-body bg-white border-danger shadow-xs py-2 mb-1">
                                                 <div class="fw-bold text-uppercase small text-secondary mb-1"><span class="bi bi-bug-fill me-1"></span> Server Rejection Reasons</div>
                                                 <ul class="list-unstyled mb-0 small">
@@ -242,7 +243,7 @@
                         </div>
 
                         @* Administrative Control Field Mappings *@
-                        @if (IsAdmin)
+                        @if (_isAdmin)
                         {
                             <div class="row g-3 mb-3">
                                 <div class="col-md-6">
@@ -291,9 +292,9 @@
 }
 
 @code {
+    [CascadingParameter] private Task<AuthenticationState> AuthStateTask { get; set; } = default!;
     [Parameter, EditorRequired] public string Title { get; set; } = "Tickets";
     [Parameter, EditorRequired] public string Subtitle { get; set; } = "Manage tickets";
-    [Parameter] public bool IsAdmin { get; set; } = false;
 
     private List<Ticket> _tickets = [];
 
@@ -308,6 +309,9 @@
     private int _totalPages = 1;
     private CancellationTokenSource? _debounceCts;
 
+    private bool _isAdmin = false;
+    private Guid _userId;
+    
     // Infrastructure components managing form states and sync message overrides
     private EditContext? _editContext;
     private ValidationMessageStore? _messageStore;
@@ -327,6 +331,10 @@
     {
         if (OperatingSystem.IsBrowser())
         {
+            var authState = await AuthStateTask;
+            var user = authState.User;
+            _isAdmin = user.IsAdmin;
+            _userId = user.Id!.Value;
             await ApplyFilter();
         }
     }
@@ -347,7 +355,7 @@
 
         if (ticket is not null)
         {
-            if (!IsAdmin && ticket.Status != TicketStatus.Open) return;
+            if (!_isAdmin && ticket.Status != TicketStatus.Open) return;
 
             ticket.IsDeleted = true;
             ticket.SyncStatus = SyncStatus.PendingDelete;
@@ -423,7 +431,7 @@
 
     private void OpenEditModal(Ticket ticket)
     {
-        if (!IsAdmin && ticket.Status != TicketStatus.Open) return;
+        if (!_isAdmin && ticket.Status != TicketStatus.Open) return;
 
         _ticketEditedId = ticket.Id;
         _inputModel = new TicketModel
@@ -461,7 +469,7 @@
 
     private void PromptDelete(Ticket ticket)
     {
-        if (!IsAdmin && ticket.Status != TicketStatus.Open) return;
+        if (!_isAdmin && ticket.Status != TicketStatus.Open) return;
 
         _ticketToDelete = ticket;
         _showDeleteModal = true;
@@ -485,7 +493,7 @@
             var existing = await context.Tickets.FindAsync(_ticketEditedId.Value);
             if (existing is not null)
             {
-                if (!IsAdmin && existing.Status != TicketStatus.Open)
+                if (!_isAdmin && existing.Status != TicketStatus.Open)
                 {
                     CloseUpsertModal();
                     return;
@@ -499,7 +507,7 @@
                 existing.SerializedErrors = null;
                 existing.SyncStatus = SyncStatus.PendingUpdate;
 
-                if (IsAdmin)
+                if (_isAdmin)
                 {
                     existing.Priority = _inputModel.Priority;
                     existing.Status = _inputModel.Status;
@@ -520,9 +528,10 @@
             var newTicket = new Ticket
             {
                 Id = Guid.NewGuid(),
-                Title = _inputModel.Title.Trim(),
                 Description = _inputModel.Description.Trim(),
-                Priority = IsAdmin ? _inputModel.Priority : TicketPriority.Low,
+                CreatedByUserId = _userId,
+                Priority = _isAdmin ? _inputModel.Priority : TicketPriority.Low,
+                Title = _inputModel.Title.Trim(),
                 Status = TicketStatus.Open,
                 CreatedAt = now,
                 UpdatedAt = now,
@@ -551,7 +560,11 @@
 
         IQueryable<Ticket> query = context.Tickets
             .Where(t => t.SyncStatus != SyncStatus.PendingDelete && !t.IsDeleted);
-
+        if (!_isAdmin) 
+        {
+            query = query.Where(t => t.CreatedByUserId == _userId);
+        }
+       
         if (!string.IsNullOrWhiteSpace(_filter.SearchTerm))
         {
             var matchTerm = $"%{_filter.SearchTerm.Trim()}%";

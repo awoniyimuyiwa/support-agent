@@ -30,7 +30,7 @@ class TicketService(
 
         var idTicketMap = await ticketRepository.GetByIds(
             ids,
-            includes: [],
+            includes: [nameof(Ticket.User)],
             ignoreQueryFilters: true,
             cancellationToken);
 
@@ -45,14 +45,15 @@ class TicketService(
                     // an unauthorized ticket. Instead of silently skipping, return the DTO flagged as 
                     // deleted so the client application knows how to process the sync conflict.
                     conflicts.Add(new TicketDto(
-                        Id: ticketDto.Id,
-                        Description: ticketDto.Description,
-                        Priority: ticketDto.Priority,
-                        Status: ticketDto.Status,
-                        Title: ticketDto.Title,
-                        CreatedAt: ticketDto.CreatedAt,
-                        UpdatedAt: ticketDto.UpdatedAt,
-                        ConcurrencyStamp: ticketDto.ConcurrencyStamp, // Same concurrency stamp
+                        ticketDto.Id,
+                        ticket.User.ExternalId,
+                        ticketDto.Description,
+                        ticketDto.Priority,
+                        ticketDto.Status,
+                        ticketDto.Title,
+                        ticketDto.CreatedAt,
+                        ticketDto.UpdatedAt,
+                        ticketDto.ConcurrencyStamp, // Same concurrency stamp
                         IsDeleted: true)); // Mark as deleted
                     continue;
                 }
@@ -62,15 +63,16 @@ class TicketService(
                 {
                     // This forces the client to overwrite the local draft
                     conflicts.Add(new TicketDto(
-                        Id: ticket.ExternalId,
-                        Description: ticket.Description,
-                        Priority: ticket.Priority,
-                        Status: ticket.Status,
-                        Title: ticket.Title,
-                        CreatedAt: ticket.CreatedAt,
-                        UpdatedAt: ticket.UpdatedAt,
-                        ConcurrencyStamp: ticket.ConcurrencyStamp,
-                        IsDeleted: ticket.IsDeleted));
+                        ticket.ExternalId,
+                        ticket.User.ExternalId,
+                        ticket.Description,
+                        ticket.Priority,
+                        ticket.Status,
+                        ticket.Title,
+                        ticket.CreatedAt,
+                        ticket.UpdatedAt,
+                        ticket.ConcurrencyStamp,
+                        ticket.IsDeleted));
                     continue;
                 }
 
@@ -80,6 +82,7 @@ class TicketService(
                 {
                     conflicts.Add(new TicketDto(
                         ticket.ExternalId,
+                        ticket.User.ExternalId,
                         ticket.Description,
                         ticket.Priority,
                         ticket.Status,

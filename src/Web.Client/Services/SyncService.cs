@@ -1,5 +1,4 @@
-﻿using Api.Contracts;
-using Api.Contracts.Models.V1;
+﻿using Api.Contracts.Models.V1;
 using Domain.Shared;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.EntityFrameworkCore;
@@ -208,13 +207,14 @@ public class SyncService(
                 clientRecord.IsDeleted = serverRecord.IsDeleted;
             },
 
-            createFunc: (FullTicketSyncItem tm) => new Ticket
+            createFunc: (TicketSyncResponseItem tm) => new Ticket
             {
                 Id = tm.Id,
-                Title = tm.Title,
+                CreatedByUserId = tm.CreatedByUserId,
                 Description = tm.Description,
                 Priority = tm.Priority,
                 Status = tm.Status,
+                Title = tm.Title,
                 CreatedAt = tm.CreatedAt.DateTime,
                 UpdatedAt = tm.UpdatedAt.DateTime,
                 ConcurrencyStamp = tm.ConcurrencyStamp,
@@ -497,7 +497,7 @@ public class SyncService(
 
             apiCall: t => isAdmin ?
             apiClient.SyncAllTickets(
-                new FullTicketSyncRequest([.. t.Select(x => new FullTicketSyncItem(
+                new FullTicketSyncRequest([.. t.Select(x => new FullTicketSyncRequestItem(
                     x.Id, 
                     x.Description, 
                     x.Priority, 
@@ -511,19 +511,21 @@ public class SyncService(
                 cancellationToken)
             :
             apiClient.SyncTickets(
-                new TicketSyncRequest([.. t.Select(x => new TicketSyncItem(
+                new TicketSyncRequest([.. t.Select(x => new TicketSyncRequestItem(
                     x.Id,
                     x.Description, 
-                    x.Title, x.CreatedAt, 
+                    x.Title,
+                    x.CreatedAt, 
                     x.UpdatedAt, 
                     x.ConcurrencyStamp, 
                     x.IsDeleted))]),
                 batchId,
                 cancellationToken),
 
-            mapToEntity: (FullTicketSyncItem t) => new Ticket
+            mapToEntity: (TicketSyncResponseItem t) => new Ticket
             {
                 Id = t.Id,
+                CreatedByUserId = t.CreatedByUserId,
                 Description = t.Description,
                 Priority = t.Priority,
                 Status = t.Status,

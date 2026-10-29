@@ -20,10 +20,20 @@ public interface ITicketService
         CancellationToken cancellationToken = default);
 }
 
+public record TicketSyncItemDto(
+    Guid Id,
+    string Description,
+    TicketPriority Priority,
+    TicketStatus Status,
+    string Title,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt,
+    string? ConcurrencyStamp,
+    bool IsDeleted = false);
+
 public record TicketSyncDto(
-    IReadOnlyCollection<TicketDto> Items,
+    IReadOnlyCollection<TicketSyncItemDto> Items,
     SyncBehavior Behavior = SyncBehavior.Default)
 {
-    public IReadOnlyCollection<TicketDto> Items { get; init; } = Items ?? [];
+    public IReadOnlyCollection<TicketSyncItemDto> Items { get; init; } = Items ?? [];
 }
-

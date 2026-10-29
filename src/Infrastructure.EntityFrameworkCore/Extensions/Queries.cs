@@ -331,6 +331,7 @@ static class Queries
             return query.Select(t => new InternalTicketDto(
                 t.Id,
                 t.ExternalId,
+                t.User.ExternalId,
                 t.Description,
                 t.Priority,
                 t.Status,
@@ -348,6 +349,7 @@ static class Queries
         {
             return query.Select(t => new TicketDto(
                 t.ExternalId,
+                t.User.ExternalId,
                 t.Description,
                 t.Priority,
                 t.Status,

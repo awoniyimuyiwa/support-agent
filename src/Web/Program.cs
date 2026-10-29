@@ -247,6 +247,17 @@ builder.Services.AddHttpForwarder();
 
 var app = builder.Build();
 
+if (app.Environment.IsDevelopment())
+{
+    app.Use(async (context, next) =>
+    {
+        // Explicitly tells Chrome/Edge to allow 'unload' event handlers to execute 
+        // without throwing a permissions violation crash
+        context.Response.Headers.Append("Permissions-Policy", "unload=*");
+        await next();
+    });
+}
+
 if (!string.IsNullOrWhiteSpace(appConfigConnectionString))
 {
     // Must be at the top so configuration updates are applied before subsequent middleware executes.

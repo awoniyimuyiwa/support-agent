@@ -25,6 +25,15 @@ public static class Security
 
     extension(ClaimsPrincipal user)
     {
+        public Guid? Id
+        {
+            get
+            {
+                var idClaim = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                return Guid.TryParse(idClaim, out var guid) ? guid : null;
+            }
+        }
+
         public bool IsAuthenticated => user.Identity?.IsAuthenticated == true;
 
         public bool IsAdmin
@@ -39,5 +48,9 @@ public static class Security
                 return user.IsInRole(Domain.Shared.Constants.AdminRoleName);
             }
         }
+
+        public string Name =>  user.FindFirst(ClaimTypes.Name)?.Value
+            ?? user.Identity?.Name
+            ?? "Support Agent";
     }
 }

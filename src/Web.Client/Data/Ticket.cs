@@ -6,6 +6,8 @@ public class Ticket : ISyncableEntity
 {
     public Guid Id { get; set; }
 
+    public Guid CreatedByUserId { get; set; }
+
     public string Description { get; set; } = string.Empty;
 
     public TicketPriority Priority { get; set; }

@@ -19,21 +19,21 @@
                 <span class="bi bi-shield-lock-fill fs-3"></span>
             </div>
             <div>
-                <h1 class="h3 fw-bold mb-0">System Control Panel</h1>
-                <small class="text-secondary">Root Infrastructure & Management Hub</small>
+                <h1 class="h3 fw-bold mb-0">Control Panel</h1>
+                <small class="text-secondary">Admin Hub</small>
             </div>
         </div>
         <button class="btn btn-white border shadow-sm btn-sm fw-semibold d-flex align-items-center gap-2" @onclick="RefreshStats">
-            <span class="bi bi-arrow-clockwise @_refreshingClass"></span> Refresh Workspace
+            <span class="bi bi-arrow-clockwise @_refreshingClass"></span> Refresh
         </button>
     </div>
 
-    @if (_isLocallyLoading)
+    @if (_isLoading)
     {
         <!-- Smooth layout skeleton loader preventing immediate layout crash/zeros on server prerender -->
         <div class="d-flex flex-column align-items-center justify-content-center my-5 py-5 text-secondary">
             <div class="spinner-border text-primary mb-3" role="status"></div>
-            <span class="small fw-semibold text-uppercase tracking-wider">Mounting Infrastructure Workspace...</span>
+            <span class="small fw-semibold text-uppercase tracking-wider">Loading...</span>
         </div>
     }
     else
@@ -176,29 +176,51 @@
     private int _totalActiveVersions = 0;
     private int _cachedFileCount = 0;
     private string _refreshingClass = "";
-    private bool _isLocallyLoading = true;
+    private bool _isLoading = true;
 
     protected override async Task OnInitializedAsync()
     {
         if (OperatingSystem.IsBrowser())
         {
             await LoadStats();
-            _isLocallyLoading = false;
+            _isLoading = false;
+        }
+        else
+        {
+            _isLoading = false;
         }
     }
 
     private async Task RefreshStats()
     {
+        // Immediately turn on the loading state and start the spin animation
+        _isLoading = true;
         _refreshingClass = "spin-animation";
+        StateHasChanged();
+        await Task.Yield();
+
+        // Run the data loader
         await LoadStats();
-        await Task.Delay(300); // Visual buffer for action confirmation
-        _refreshingClass = "";
+
+        // Only turn off loading in the browser
+        // If the server caught this click, leave _isLoading = true so the
+        // spinner stays up until WebAssembly boots and finishes the job.
+        if (OperatingSystem.IsBrowser())
+        {
+            await Task.Delay(300); // Visual buffer for action confirmation
+            _isLoading = false;
+            _refreshingClass = "";
+        }
     }
 
     private async Task LoadStats()
     {
-        using var context = await DbFactory.CreateDbContextAsync();
+        if (!OperatingSystem.IsBrowser())
+        {
+            return;
+        }
 
+        using var context = await DbFactory.CreateDbContextAsync();
         var pendingVersions = await context.DocumentVersions.CountAsync(v => v.SyncStatus != SyncStatus.Synced);
         var pendingTickets = await context.Tickets.CountAsync(t => t.SyncStatus != SyncStatus.Synced);
         _localPendingInserts = pendingVersions + pendingTickets;
@@ -218,4 +240,5 @@
         await context.SaveChangesAsync();
         await LoadStats();
     }
+
 }
