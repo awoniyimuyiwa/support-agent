@@ -41,7 +41,19 @@ class TicketService(
                 // Non-admins cannot modify tickets that don't belong them
                 if (!isAdmin && ticket.UserId != userId)
                 {
-                    // Using continue here is fine for security since the ticket doesn't belong to them
+                    // Handle edge cases where a user (e.g., a recently demoted admin) attempts to modify 
+                    // an unauthorized ticket. Instead of silently skipping, return the DTO flagged as 
+                    // deleted so the client application knows how to process the sync conflict.
+                    conflicts.Add(new TicketDto(
+                        Id: ticketDto.Id,
+                        Description: ticketDto.Description,
+                        Priority: ticketDto.Priority,
+                        Status: ticketDto.Status,
+                        Title: ticketDto.Title,
+                        CreatedAt: ticketDto.CreatedAt,
+                        UpdatedAt: ticketDto.UpdatedAt,
+                        ConcurrencyStamp: ticketDto.ConcurrencyStamp, // Same concurrency stamp
+                        IsDeleted: true)); // Mark as deleted
                     continue;
                 }
 

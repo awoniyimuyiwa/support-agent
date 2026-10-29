@@ -1,5 +1,6 @@
 ﻿using Api.Contracts;
 using Api.Contracts.Models.V1;
+using Domain.Shared;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.EntityFrameworkCore;
 using SqliteWasmHelper;
@@ -302,7 +303,7 @@ public class SyncService(
                     .Where(x => entityIds.Contains(x.Id))
                     .ToListAsync(cancellationToken);
                 await SyncDocuments(
-                    batch.Id, 
+                    batch.Id,
                     existingDocuments, 
                     cancellationToken);
             }
@@ -482,47 +483,41 @@ public class SyncService(
             dbSetSelector: ctx => ctx.DocumentVersions,
             cancellationToken);
     }
-         
-    public async Task<IReadOnlyCollection<(
-        Ticket Client,
-        Ticket Server)>> SyncTickets(
 
+    public async Task<IReadOnlyCollection<(Ticket Client, Ticket Server)>> SyncTickets(
         Guid batchId,
         IReadOnlyCollection<Ticket> tickets,
         CancellationToken cancellationToken = default)
     {
         var isAdmin = await authStateProvider.IsAdmin();
 
-        return await Sync(
+        var conflicts = await Sync(
             batchId,
             tickets,
 
             apiCall: t => isAdmin ?
             apiClient.SyncAllTickets(
-                new FullTicketSyncRequest([.. t.Select(x =>  new FullTicketSyncItem(
-                    x.Id,
-                    x.Description,
-                    x.Priority,
-                    x.Status,
-                    x.Title,
-                    x.CreatedAt,
-                    x.UpdatedAt,
-                    x.ConcurrencyStamp,
-                    x.IsDeleted
-                ))]),
+                new FullTicketSyncRequest([.. t.Select(x => new FullTicketSyncItem(
+                    x.Id, 
+                    x.Description, 
+                    x.Priority, 
+                    x.Status, 
+                    x.Title, 
+                    x.CreatedAt, 
+                    x.UpdatedAt, 
+                    x.ConcurrencyStamp, 
+                    x.IsDeleted))]),
                 batchId,
                 cancellationToken)
             :
             apiClient.SyncTickets(
-                new TicketSyncRequest([.. t.Select(x =>  new TicketSyncItem(
+                new TicketSyncRequest([.. t.Select(x => new TicketSyncItem(
                     x.Id,
-                    x.Description,
-                    x.Title,
-                    x.CreatedAt,
-                    x.UpdatedAt,
-                    x.ConcurrencyStamp,
-                    x.IsDeleted
-                ))]),
+                    x.Description, 
+                    x.Title, x.CreatedAt, 
+                    x.UpdatedAt, 
+                    x.ConcurrencyStamp, 
+                    x.IsDeleted))]),
                 batchId,
                 cancellationToken),
 
@@ -542,6 +537,79 @@ public class SyncService(
 
             dbSetSelector: ctx => ctx.Tickets,
             cancellationToken);
+
+        // For Non-Admins, process and strip out specific server-side conflicts
+        if (!isAdmin && conflicts.Count > 0)
+        {
+            var idsToDelete = conflicts
+                .Where(t => t.Server.IsDeleted && t.Server.ConcurrencyStamp == t.Client.ConcurrencyStamp)
+                .Select(t => t.Server.Id)
+                .ToList();
+
+            var idsToUpdate = conflicts
+                .Where(t => t.Server.Status != TicketStatus.Open)
+                .Select(t => t.Server.Id)
+                .ToList();
+
+            using var context = await dbFactory.CreateDbContextAsync();
+            using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+
+            try
+            {
+                if (idsToDelete.Count > 0)
+                {
+                    await context.Tickets
+                        .Where(t => idsToDelete.Contains(t.Id))
+                        .ExecuteDeleteAsync(cancellationToken);
+                }
+
+                // Fetch and batch-update records inside the same transaction
+                if (idsToUpdate.Count > 0)
+                {
+                    var clientMap = await context.Tickets
+                        .Where(t => idsToUpdate.Contains(t.Id))
+                        .ToDictionaryAsync(t => t.Id, cancellationToken);
+
+                    foreach (var conflict in conflicts.Where(c => idsToUpdate.Contains(c.Server.Id)))
+                    {
+                        var serverTicket = conflict.Server;
+
+                        if (clientMap.TryGetValue(serverTicket.Id, out var client))
+                        {
+                            client.Description = serverTicket.Description;
+                            client.Priority = serverTicket.Priority;
+                            client.Status = serverTicket.Status;
+                            client.Title = serverTicket.Title;
+                            client.CreatedAt = serverTicket.CreatedAt;
+                            client.UpdatedAt = serverTicket.UpdatedAt;
+                            client.ConcurrencyStamp = serverTicket.ConcurrencyStamp;
+                            client.IsDeleted = serverTicket.IsDeleted;
+                            client.SyncStatus = SyncStatus.Synced;
+
+                            context.Tickets.Update(client);
+                        }
+                    }
+
+                    await context.SaveChangesAsync(cancellationToken);
+                }
+
+                await transaction.CommitAsync(cancellationToken);
+            }
+            catch
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                throw;
+            }
+
+            // Build and return the remaining conflicts
+            var filteredConflicts = conflicts
+                .Where(t => !idsToDelete.Contains(t.Server.Id) && !idsToUpdate.Contains(t.Server.Id))
+                .ToList();
+
+            return filteredConflicts.AsReadOnly();
+        }
+
+        return conflicts;
     }
 
     private async Task<List<TEntity>> CreateSyncBatch<TEntity>(
@@ -553,7 +621,7 @@ public class SyncService(
         using var context = await dbFactory.CreateDbContextAsync();
 
         var entities = await querySelector(context)
-            .Take(Constants.MaxLengthOfList)
+            .Take(Api.Contracts.Constants.MaxLengthOfList)
             .ToListAsync(cancellationToken);
 
         if (entities.Count == 0) { return entities; }
@@ -830,7 +898,7 @@ public class SyncService(
             throw;
         }
 
-        return pendingItems.Count >= Constants.MaxLengthOfList;
+        return pendingItems.Count >= Api.Contracts.Constants.MaxLengthOfList;
     }
 
     private async Task CleanupExpiredUploadUrls<TEntity>(CancellationToken cancellationToken) where TEntity : class
