@@ -5,6 +5,7 @@
 @using System.Net
 @using Api.Contracts
 @using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.EntityFrameworkCore
 @using Web.Client.Data
 @using Web.Client.Extensions
 @using Web.Client.Models;
@@ -16,6 +17,7 @@
 @inject AuthenticationStateProvider AuthStateProvider
 @inject ILogger<SyncCoordinator> Logger
 @inject NavigationManager Nav
+@inject IDbContextFactory<ApplicationDbContext> DbContextFactory
 
 @implements IDisposable
 
@@ -317,7 +319,7 @@
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, ex.Message);
+            Logger.LogError(ex, "{Message}", ex.Message);
         }
         finally
         {
@@ -369,7 +371,7 @@
                 }
                 catch (HttpRequestException ex)
                 {
-                    Logger.LogError(ex, ex.Message);
+                    Logger.LogError(ex, "{Message}", ex.Message);
                 }
             }
         }
@@ -397,17 +399,37 @@
             _isSyncing = true;
             StateHasChanged();
 
+            Guid? strandedBatchId = null;
+            using (var context = await DbContextFactory.CreateDbContextAsync())
+            {
+                var interruptedBatch = await context.SyncBatches
+                    .OrderBy(x => x.CreatedAt)
+                    .FirstOrDefaultAsync(_cts?.Token ?? default);
+
+                if (interruptedBatch is not null)
+                {
+                    strandedBatchId = interruptedBatch.Id;
+                    Logger.LogWarning("Resuming stranded synchronization batch: {BatchId}", strandedBatchId);
+                }
+            }
+
+            if (strandedBatchId.HasValue)
+            {
+                await SyncService.ResumeBatch(strandedBatchId.Value, _cts?.Token ?? default);
+                return;
+            }
+
             bool hasMoreData = true;
 
             // Keep execution sweeping through database pages until no records remain pending
             while (hasMoreData && _isOnline && !_isDisposed)
             {
-                var processedUserSync = await RunSync();
+                var processedUserSync = await RunSync(_cts?.Token ?? default);
 
                 var processedAdminSync = false;
                 if (authState.User.IsAdmin)
                 {
-                    processedAdminSync = await RunAllSync();
+                    processedAdminSync = await RunAllSync(_cts?.Token ?? default);
                 }
 
                 // Determine if any operations processed data (implying there might be more batches)
@@ -434,16 +456,16 @@
             if (ex.StatusCode == HttpStatusCode.Conflict)
             {
                 _showRaceConditionAlert = true;
-                Logger.LogError(ex, ex.Message);
+                Logger.LogError(ex, "{Message}", ex.Message);
             }
             else
             {
-                Logger.LogError(ex, ex.Message);
+                Logger.LogError(ex, "{Message}", ex.Message);
             }
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, ex.Message);
+            Logger.LogError(ex, "{Message}", ex.Message);
         }
         finally
         {
@@ -452,11 +474,12 @@
         }
     }
 
-    private async Task<bool> RunSync()
+    private async Task<bool> RunSync(CancellationToken cancellationToken)
     {
         var ticketConflicts = await SyncService.Sync<Ticket>(
             ctx => ctx.Tickets,
-            SyncService.SyncTickets);
+            SyncService.SyncTickets,
+            cancellationToken);
 
         if (ticketConflicts.Any())
         {
@@ -466,52 +489,58 @@
         }
 
         // Fetch changes
-        await SyncService.FetchTicketDeltas();
+        await SyncService.FetchTicketDeltas(cancellationToken);
 
         // Return true if any local updates were pushed out (checks batch count bounds)
         return ticketConflicts.Count >= Constants.MaxLengthOfList;
     }
 
-    private async Task<bool> RunAllSync()
+    private async Task<bool> RunAllSync(CancellationToken cancellationToken)
     {
         var entitiesProcessed = false;
 
         var documentCategoryConflicts = await SyncService.Sync<DocumentCategory>(
             ctx => ctx.DocumentCategories,
-            SyncService.SyncDocumentCategories);
+            SyncService.SyncDocumentCategories,
+            cancellationToken);
         if (documentCategoryConflicts.Any())
         {
             _documentCategoryConflicts = documentCategoryConflicts;
             _showDocumentCategoryModal = true;
             entitiesProcessed = true;
         }
-        await SyncService.FetchDocumentCategoryDeltas();
+        await SyncService.FetchDocumentCategoryDeltas(cancellationToken);
         if (documentCategoryConflicts.Count >= Constants.MaxLengthOfList) entitiesProcessed = true;
 
         var documentConflicts = await SyncService.Sync<Document>(
             ctx => ctx.Documents,
-            SyncService.SyncDocuments);
+            SyncService.SyncDocuments,
+            cancellationToken);
         if (documentConflicts.Any())
         {
             _documentConflicts = documentConflicts;
             _showDocumentModal = true;
             entitiesProcessed = true;
         }
-        await SyncService.FetchDocumentDeltas();
+        await SyncService.FetchDocumentDeltas(cancellationToken);
         if (documentConflicts.Count >= Constants.MaxLengthOfList) entitiesProcessed = true;
 
-        entitiesProcessed = await SyncService.CreateDocumentVersions();
+        var versionsPushed = await SyncService.CreateDocumentVersions(
+            batchId: null,
+            cancellationToken);
+        if (versionsPushed) entitiesProcessed = true;
 
         var documentVersionConflicts = await SyncService.Sync<DocumentVersion>(
                 ctx => ctx.DocumentVersions,
-                SyncService.SyncDocumentVersions);
+                SyncService.SyncDocumentVersions,
+                cancellationToken);
         if (documentVersionConflicts.Any())
         {
             _documentVersionConflicts = documentVersionConflicts;
             _showDocumentVersionModal = true;
             entitiesProcessed = true;
         }
-        await SyncService.FetchDocumentVersionDeltas();
+        await SyncService.FetchDocumentVersionDeltas(cancellationToken);
         if (documentVersionConflicts.Count >= Constants.MaxLengthOfList) entitiesProcessed = true;
 
         return entitiesProcessed;
@@ -526,7 +555,7 @@
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, ex.Message);
+            Logger.LogError(ex, "{Message}", ex.Message);
         }
     }
 }

@@ -80,7 +80,7 @@ AppDomain.CurrentDomain.UnhandledException += (sender, errorArgs) =>
 await host.RunAsync();
 
 /// <summary>
-/// Orchestrates pre-flight cache allocation and recovers broken sync queues at app boot time.
+/// Orchestrates pre-flight cache allocation
 /// </summary>
 static async Task InitializeStorage(IServiceProvider services, ILogger logger)
 {
@@ -93,28 +93,11 @@ static async Task InitializeStorage(IServiceProvider services, ILogger logger)
         // Ensure the SQLite schema is initialized and up to date inside IndexedDB
         // This creates tables dynamically on first visit
         await context.Database.EnsureCreatedAsync();
-
-        // Check for Unfinished In-Flight Synchronization Operations
-        var interruptedBatch = await context.SyncBatches
-            .OrderBy(x => x.CreatedAt)
-            .FirstOrDefaultAsync();
-
-        if (interruptedBatch is not null)
-        {
-            // An active batch metadata entry was left stranded because the user closed 
-            // the tab or their battery died mid-transmission.             
-            logger.LogWarning("Interrupted data synchronization batch discovered during startup processing sequence. Stranded Idempotency Key: {BatchId}", interruptedBatch.Id);
-
-            var syncService = services.GetRequiredService<SyncService>();
-            await syncService.ResumeBatch(interruptedBatch.Id);
-        }
-        else
-        {
-            logger.LogInformation("Local SQLite storage engine validation finished. Outbound data synchronization queue is clean.");
-        }
+        
+        logger.LogInformation("Local SQLite storage engine validation finished.");
     }
     catch (Exception ex)
-    {        
-        logger.LogError(ex, "Pre-flight client database storage initialization pass crashed.");
+    {
+        logger.LogError(ex, "Pre-flight client database storage initialization pass failed: {Message}", ex.Message);
     }
 }
