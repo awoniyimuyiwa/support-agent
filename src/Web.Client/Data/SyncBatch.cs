@@ -17,7 +17,7 @@ public enum SyncType
 {
     Sync = 0,
 
-    GetUploadUrls = 1,
+    UploadFiles = 1,
 
     Create = 2
 }

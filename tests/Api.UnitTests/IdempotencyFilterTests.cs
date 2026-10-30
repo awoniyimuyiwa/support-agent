@@ -38,7 +38,9 @@ public class IdempotencyFilterTests
         var filter = new IdempotencyFilter(
             cache.Object, 
             db.Object, 
-            options);
+            options,
+            null,
+            null);
         var nextCalled = false;
 
         // Act
@@ -64,7 +66,9 @@ public class IdempotencyFilterTests
         var filter = new IdempotencyFilter(
             cache.Object, 
             db.Object, 
-            options);
+            options,
+            null,
+            null);
 
         // Act
         var result = await filter.InvokeAsync(context, _ => ValueTask.FromResult<object?>(null));
@@ -93,7 +97,9 @@ public class IdempotencyFilterTests
         var filter = new IdempotencyFilter(
             cache.Object, 
             db.Object, 
-            options);
+            options,
+            null,
+            null);
 
         // Act
         var result = await filter.InvokeAsync(
@@ -136,7 +142,9 @@ public class IdempotencyFilterTests
         var filter = new IdempotencyFilter(
             cache.Object, 
             db.Object, 
-            options);
+            options,
+            null,
+            null);
 
         // Act
         var result = await filter.InvokeAsync(
@@ -177,7 +185,9 @@ public class IdempotencyFilterTests
         var filter = new IdempotencyFilter(
             cache.Object,
             db.Object,
-            options);
+            options,
+            null,
+            null);
 
         // Act
         var result = await filter.InvokeAsync(
@@ -215,7 +225,9 @@ public class IdempotencyFilterTests
         var filter = new IdempotencyFilter(
             cache.Object, 
             db.Object, 
-            options);
+            options,
+            null,
+            null);
 
         // Act
         var result = await filter.InvokeAsync(
@@ -253,7 +265,9 @@ public class IdempotencyFilterTests
         var filter = new IdempotencyFilter(
             cache.Object,
             db.Object,
-            options);
+            options,
+            null,
+            null);
 
         var actionContext = new ActionContext(
             context.HttpContext,

@@ -19,7 +19,8 @@ public class IdempotencyFilter(
     IDistributedCache cache,
     IDatabase database,
     IOptions<IdempotencyOptions> options,
-    IOptions<FileStorageOptions>? fileOptions = null) : IAsyncActionFilter, IEndpointFilter
+    IOptions<FileStorageOptions> fileOptions,
+    TimeProvider timeProvider) : IAsyncActionFilter, IEndpointFilter
 {
     public const string CachePrefix = "idempotency:";
     public const string LockPrefix = "lock:";
@@ -149,6 +150,21 @@ public class IdempotencyFilter(
         if (!await database.LockTakeAsync(lockKey, lockToken, lockTtl))
             return new ConflictObjectResult(ConflictErrorMessage);
 
+        DistributedCacheEntryOptions? cacheOptions = null;
+        if (endpoint?.Metadata.GetMetadata<CreatesUploadUrlAttribute>() is not null)
+        {
+            // For upload url endpoints, prepare cache options upfront; the cache will naturally expire slightly before the files 
+            // since the url generating logic calculates the file TTL timestamp after this point.
+            var ttlMinutes = idempotentAttr.RecordTTLMinutes > 0
+                ? (double)idempotentAttr.RecordTTLMinutes
+                : (double)fileOptions.Value.UploadUrlTTLMinutes;
+
+            cacheOptions = new DistributedCacheEntryOptions
+            {
+                AbsoluteExpiration = timeProvider.GetUtcNow().AddMinutes(ttlMinutes)
+            };
+        }
+
         try
         {
             var result = await next();
@@ -178,24 +194,23 @@ public class IdempotencyFilter(
                     statusCode.Value,
                     headers);
 
-                var ttlMinutes = idempotentAttr.RecordTTLMinutes switch
+                // Fall back to standard options only if it wasn't pre-calculated
+                if (cacheOptions is null)
                 {
-                    > 0 => idempotentAttr.RecordTTLMinutes,
+                    var ttlMinutes = idempotentAttr.RecordTTLMinutes > 0
+                        ? idempotentAttr.RecordTTLMinutes
+                        : (double)options.Value.RecordTTLMinutes;
 
-                    _ when endpoint?.Metadata.GetMetadata<CreatesUploadUrlAttribute>() is not null
-                           && fileOptions is not null => fileOptions.Value.UploadUrlTTLMinutes,
-                    
-                    _ => (double)options.Value.RecordTTLMinutes
-                };
-                var recordTtl = TimeSpan.FromMinutes(ttlMinutes);
+                    cacheOptions = new DistributedCacheEntryOptions
+                    {
+                        AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(ttlMinutes)
+                    };
+                }
 
                 await cache.SetStringAsync(
-                    recordKey, 
+                    recordKey,
                     JsonSerializer.Serialize(record),
-                    new DistributedCacheEntryOptions 
-                    { 
-                        AbsoluteExpirationRelativeToNow = recordTtl
-                    }, 
+                    cacheOptions,
                     cancellationToken);
             }
 

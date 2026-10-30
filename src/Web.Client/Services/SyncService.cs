@@ -80,7 +80,6 @@ public class SyncService(
     public Task<bool> CreateDocumentVersions(
         Guid? batchId = null,
         CancellationToken cancellationToken = default) => Create<DocumentVersion>(
-        uploadUrlApiCall: apiClient.CreateDocumentVersionUploadUrls,
         creationApiCall: (entities, activeBatchId, ct) =>
         {
             var requestItems = entities
@@ -88,17 +87,17 @@ public class SyncService(
                     x.Id,
                     x.ContentHash,
                     x.DocumentId,
-                    x.StoredFile!.StoredFileUploadDetails!.Id,
+                    x.StoredFile!.ServerFileId!.Value,
                     x.StoredFile.Type,
                     new DateTimeOffset(x.CreatedAt)))
                 .ToList();
 
             return apiClient.CreateDocumentVersions(
                 new CreateDocumentVersionRequest(requestItems),
-                activeBatchId, // Pass the active tracking ID up to the endpoint payload parameters
+                activeBatchId, // Pass the batch id
                 ct);
         },
-        batchId, // Route the parameter safely down to the core engine configuration
+        batchId,
         cancellationToken);
 
     public Task FetchDocumentDeltas(CancellationToken cancellationToken = default)
@@ -273,15 +272,13 @@ public class SyncService(
             }
         } // Read context is fully closed and disposed here
 
-        if (batch.Type == SyncType.GetUploadUrls)
+        if (batch.Type == SyncType.UploadFiles)
         {
             if (batch.EntityTypeName == typeof(DocumentVersion).Name)
             {
-                await CreateUploadUrls(
-                    apiCall: apiClient.CreateDocumentVersionUploadUrls,
-                    dbSetSelector: ctx => ctx.DocumentVersions,
-                    batchId: batch.Id,
-                    cancellationToken: cancellationToken);
+                await UploadDocumentVersionFiles(
+                    batch.Id,
+                    cancellationToken);
             }
         }
         else if (batch.Type == SyncType.Create)
@@ -614,33 +611,141 @@ public class SyncService(
         return conflicts;
     }
 
-    private async Task<List<TEntity>> CreateSyncBatch<TEntity>(
-        Func<ApplicationDbContext, IQueryable<TEntity>> querySelector,
-        Guid batchId,
-        SyncType type,
-        CancellationToken cancellationToken) where TEntity : class, ISyncableEntity
+    public Task<bool> UploadDocumentVersionFiles(
+        Guid? batchId = null,
+        CancellationToken cancellationToken = default) => UploadFiles(
+            apiClient.CreateDocumentVersionUploadUrls,
+            dbSetSelector: ctx => ctx.DocumentVersions,
+            batchId,
+            cancellationToken);
+
+    private async Task<bool> Create<TEntity>(
+        Func<List<TEntity>,
+            Guid,
+            CancellationToken,
+            Task<HttpResponseMessage>> creationApiCall,
+
+        Guid? batchId,
+
+        CancellationToken cancellationToken) where TEntity : class, IHasFile
     {
-        using var context = await dbFactory.CreateDbContextAsync();
+        var entityTypeName = typeof(TEntity).Name;
+        var activeBatchId = Guid.NewGuid();
+        List<TEntity> pendingItems = [];
 
-        var entities = await querySelector(context)
-            .Take(Api.Contracts.Constants.MaxLengthOfList)
-            .ToListAsync(cancellationToken);
-
-        if (entities.Count == 0) { return entities; }
-
-        var batch = new SyncBatch
+        if (batchId.HasValue && batchId.Value != Guid.Empty)
         {
-            Id = batchId,
-            EntityTypeName = typeof(TEntity).Name,
-            SerializedEntityIds = JsonSerializer.Serialize(entities.Select(x => x.Id).ToList()),
-            Type = type,
-            CreatedAt = timeProvider.GetUtcNow().DateTime
-        };
+            using var checkContext = await dbFactory.CreateDbContextAsync();
 
-        context.SyncBatches.Add(batch);
-        await context.SaveChangesAsync(cancellationToken);
+            var existingBatch = await checkContext.SyncBatches
+                .FirstOrDefaultAsync(x => x.Id == batchId.Value
+                                          && x.EntityTypeName == entityTypeName
+                                          && x.Type == SyncType.Create,
+                                     cancellationToken);
 
-        return entities;
+            if (existingBatch is null) { return false; }
+
+            activeBatchId = batchId.Value;
+            var trackedIds = JsonSerializer.Deserialize<List<Guid>>(existingBatch.SerializedEntityIds) ?? [];
+
+            if (trackedIds.Count > 0)
+            {
+                pendingItems = await checkContext.Set<TEntity>()
+                    .Include(x => x.StoredFile)
+                    .Where(x => trackedIds.Contains(x.Id))
+                    .AsNoTracking()
+                    .ToListAsync(cancellationToken);
+            }
+        }
+        else
+        {
+            activeBatchId = Guid.NewGuid();
+            pendingItems = await CreateSyncBatch(
+                ctx => ctx.Set<TEntity>()
+                .Include(x => x.StoredFile)
+                .Where(x => x.SyncStatus == SyncStatus.PendingInsert
+                            && x.StoredFile != null
+                            && x.StoredFile.ServerFileId != null
+                            && string.IsNullOrWhiteSpace(x.SerializedErrors))
+                .OrderBy(x => x.Id),
+                activeBatchId,
+                SyncType.Create,
+                cancellationToken);
+        }
+
+        if (pendingItems.Count == 0) { return false; }
+
+        using var response = await creationApiCall(
+            pendingItems,
+            activeBatchId,
+            cancellationToken);
+
+        using var context = await dbFactory.CreateDbContextAsync();
+        using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+
+        try
+        {
+            if (response.StatusCode == System.Net.HttpStatusCode.BadRequest)
+            {
+                var problemDetails = await response.Content.ReadFromJsonAsync<ApiValidationProblemDetails>(cancellationToken);
+                int totalMappedItemErrors = 0;
+
+                if (problemDetails?.Errors is not null)
+                {
+                    for (int i = 0; i < pendingItems.Count; i++)
+                    {
+                        var prefix = $"{nameof(CreateDocumentVersionRequest.Items)}[{i}].";
+                        var indexErrors = problemDetails.Errors
+                            .Where(kvp => kvp.Key.StartsWith(prefix))
+                            .ToDictionary(
+                                kvp => kvp.Key.Replace(prefix, ""),
+                                kvp => kvp.Value
+                            );
+
+                        if (indexErrors.Count > 0)
+                        {
+                            totalMappedItemErrors += indexErrors.Count;
+                            var targetEntity = context.Set<TEntity>().Attach(pendingItems[i]).Entity;
+                            targetEntity.SerializedErrors = JsonSerializer.Serialize(indexErrors);
+                        }
+                    }
+                }
+
+                if (totalMappedItemErrors == 0)
+                {
+                    response.EnsureSuccessStatusCode();
+                }
+            }
+            else
+            {
+                response.EnsureSuccessStatusCode();
+
+                var itemIds = pendingItems.Select(x => x.Id).ToList();
+                var fileIds = pendingItems.Select(x => x.StoredFileId).ToList();
+
+                await context.Set<TEntity>()
+                    .Where(x => itemIds.Contains(x.Id))
+                    .ExecuteUpdateAsync(s => s.SetProperty(b => b.SyncStatus, SyncStatus.Synced), cancellationToken);
+
+                await context.StoredFiles
+                    .Where(x => fileIds.Contains(x.Id))
+                    .ExecuteDeleteAsync(cancellationToken);
+            }
+
+            await context.SyncBatches
+                .Where(b => b.Id == activeBatchId)
+                .ExecuteDeleteAsync(cancellationToken);
+
+            await context.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw;
+        }
+
+        return pendingItems.Count >= Api.Contracts.Constants.MaxLengthOfList;
     }
 
     private async Task FetchDeltas<TEntity, TSyncableModel>(
@@ -744,294 +849,6 @@ public class SyncService(
         }
     }
 
-    private async Task<bool> Create<TEntity>(
-   
-        Func<CreateUploadUrlRequest, 
-            Guid, 
-            CancellationToken,
-            Task<HttpResponseMessage>> uploadUrlApiCall,
-
-   
-        Func<List<TEntity>, 
-            Guid,
-            CancellationToken,
-            Task<HttpResponseMessage>> creationApiCall,
-
-        Guid? batchId,
-    
-        CancellationToken cancellationToken) where TEntity : class, IHasFile
-    {
-        var entityTypeName = typeof(TEntity).Name;
-        var activeBatchId = Guid.NewGuid();
-        List<TEntity> pendingItems = [];
-
-        // Purge stale upload urls first
-        await CleanupExpiredUploadUrls<TEntity>(cancellationToken);
-
-        if (batchId.HasValue && batchId.Value != Guid.Empty)
-        {
-            using var checkContext = await dbFactory.CreateDbContextAsync();
-
-            var existingBatch = await checkContext.SyncBatches
-                .FirstOrDefaultAsync(x => x.Id == batchId.Value
-                                          && x.EntityTypeName == entityTypeName
-                                          && x.Type == SyncType.Create,
-                                     cancellationToken);
-
-            if (existingBatch is null) { return false; }
-
-            activeBatchId = batchId.Value;
-            var trackedIds = JsonSerializer.Deserialize<List<Guid>>(existingBatch.SerializedEntityIds) ?? [];
-
-            if (trackedIds.Count > 0)
-            {
-                pendingItems = await checkContext.Set<TEntity>()
-                    .Include(x => x.StoredFile)
-                    .ThenInclude(sf => sf!.StoredFileUploadDetails)
-                    .Where(x => trackedIds.Contains(x.Id))
-                    .AsNoTracking()
-                    .ToListAsync(cancellationToken);
-            }
-        }
-        else
-        {
-            activeBatchId = Guid.NewGuid();
-
-            await CreateUploadUrls(
-                uploadUrlApiCall,
-                dbSetSelector: ctx => ctx.Set<TEntity>(),
-                batchId: null,
-                cancellationToken: cancellationToken);
-
-            pendingItems = await CreateSyncBatch(
-                ctx => ctx.Set<TEntity>()
-                .Include(x => x.StoredFile)
-                .ThenInclude(sf => sf!.StoredFileUploadDetails)
-                .Where(x => x.SyncStatus == SyncStatus.PendingInsert
-                            && x.StoredFile != null
-                            && x.StoredFile.StoredFileUploadDetails != null
-                            && string.IsNullOrWhiteSpace(x.SerializedErrors))
-                .OrderBy(x => x.Id),
-                activeBatchId,
-                SyncType.Create,
-                cancellationToken);
-        }
-
-        if (pendingItems.Count == 0) { return false; }
-
-        await UploadFiles(
-            pendingItems, 
-            cancellationToken);
-
-        // Initiate metadata recording via downstream orchestrators after binaries are resting in Azure
-        using var response = await creationApiCall(
-            pendingItems,
-            activeBatchId,
-            cancellationToken);
-
-        using var context = await dbFactory.CreateDbContextAsync();
-
-        using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-
-        try
-        {
-            if (response.StatusCode == System.Net.HttpStatusCode.BadRequest)
-            {
-                var problemDetails = await response.Content.ReadFromJsonAsync<ApiValidationProblemDetails>(cancellationToken);
-                int totalMappedItemErrors = 0;
-
-                if (problemDetails?.Errors is not null)
-                {
-                    for (int i = 0; i < pendingItems.Count; i++)
-                    {
-                        var prefix = $"{nameof(CreateDocumentVersionRequest.Items)}[{i}].";
-                        var indexErrors = problemDetails.Errors
-                            .Where(kvp => kvp.Key.StartsWith(prefix))
-                            .ToDictionary(
-                                kvp => kvp.Key.Replace(prefix, ""),
-                                kvp => kvp.Value
-                            );
-
-                        if (indexErrors.Count > 0)
-                        {
-                            totalMappedItemErrors += indexErrors.Count;
-                            var targetEntity = context.Set<TEntity>().Attach(pendingItems[i]).Entity;
-                            targetEntity.SerializedErrors = JsonSerializer.Serialize(indexErrors);
-                        }
-                    }
-                }
-
-                if (totalMappedItemErrors == 0)
-                {
-                    response.EnsureSuccessStatusCode();
-                }
-            }
-            else
-            {
-                response.EnsureSuccessStatusCode();
-
-                var itemIds = pendingItems.Select(x => x.Id).ToList();
-                var fileIds = pendingItems.Select(x => x.StoredFileId).ToList();
-
-                await context.Set<TEntity>()
-                    .Where(x => itemIds.Contains(x.Id))
-                    .ExecuteUpdateAsync(s => s.SetProperty(b => b.SyncStatus, SyncStatus.Synced), cancellationToken);
-
-                await context.StoredFileUploadDetails
-                    .Where(x => fileIds.Contains(x.StoredFileId))
-                    .ExecuteDeleteAsync(cancellationToken);
-
-                await context.StoredFiles
-                    .Where(x => fileIds.Contains(x.Id))
-                    .ExecuteDeleteAsync(cancellationToken);
-            }
-
-            // Attach minimal layout row stub directly to perform the tracking removal safely
-            var batchStub = new SyncBatch { Id = activeBatchId };
-            context.SyncBatches.Attach(batchStub);
-            context.SyncBatches.Remove(batchStub);
-
-            await context.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
-        }
-        catch
-        {
-            await transaction.RollbackAsync(cancellationToken);
-            throw;
-        }
-
-        return pendingItems.Count >= Api.Contracts.Constants.MaxLengthOfList;
-    }
-
-    private async Task CleanupExpiredUploadUrls<TEntity>(CancellationToken cancellationToken) where TEntity : class
-    {
-        using var cleanupContext = await dbFactory.CreateDbContextAsync();
-
-        var expirationThreshold = timeProvider.GetUtcNow().DateTime.AddMinutes(-15);
-        var entityTypeName = typeof(TEntity).Name;
-
-        var expiredBatches = await cleanupContext.SyncBatches
-            .Where(x => x.Type == SyncType.GetUploadUrls
-                     && x.EntityTypeName == entityTypeName
-                     && x.CreatedAt < expirationThreshold)
-            .ToListAsync(cancellationToken);
-
-        if (expiredBatches.Count == 0) { return; }
-
-        // Force bulk operations into the same transaction
-        using var transaction = await cleanupContext.Database.BeginTransactionAsync(cancellationToken);
-
-        try
-        {
-            foreach (var batch in expiredBatches)
-            {
-                var targetIds = JsonSerializer.Deserialize<List<Guid>>(batch.SerializedEntityIds) ?? [];
-                if (targetIds.Count == 0) continue;
-
-                await cleanupContext.StoredFileUploadDetails
-                    .Where(x => targetIds.Contains(x.StoredFileId))
-                    .ExecuteDeleteAsync(cancellationToken);
-
-                cleanupContext.SyncBatches.Remove(batch);
-            }
-
-            await cleanupContext.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
-        }
-        catch
-        {
-            await transaction.RollbackAsync(cancellationToken);
-            throw;
-        }
-    }
-
-    private async Task CreateUploadUrls<TEntity>(
-        Func<CreateUploadUrlRequest, Guid, CancellationToken, Task<HttpResponseMessage>> apiCall,
-        Func<ApplicationDbContext, DbSet<TEntity>> dbSetSelector,
-        Guid? batchId,
-        CancellationToken cancellationToken) where TEntity : class, IHasFile
-    {
-        var activeBatchId = Guid.NewGuid();
-        var entityTypeName = typeof(TEntity).Name;
-        List<TEntity> entities = [];
-
-        if (batchId.HasValue && batchId.Value != Guid.Empty)
-        {
-            using var checkContext = await dbFactory.CreateDbContextAsync();
-            var expirationThreshold = timeProvider.GetUtcNow().DateTime.AddMinutes(-15);
-
-            var existingBatch = await checkContext
-                .SyncBatches
-                .FirstOrDefaultAsync(x => x.Id == batchId.Value
-                                          && x.EntityTypeName == entityTypeName
-                                          && x.Type == SyncType.GetUploadUrls
-                                          && x.CreatedAt >= expirationThreshold,
-                                     cancellationToken);
-
-            // Terminate immediately if a batch identifier was explicitly passed but it does not exist or has expired
-            if (existingBatch is null) { return; }
-
-            activeBatchId = batchId.Value;
-            var trackedIds = JsonSerializer.Deserialize<List<Guid>>(existingBatch.SerializedEntityIds) ?? [];
-
-            if (trackedIds.Count > 0)
-            {
-                entities = await dbSetSelector(checkContext)
-                    .Where(e => trackedIds.Contains(e.Id))
-                    .AsNoTracking()
-                    .ToListAsync(cancellationToken);
-            }
-        }
-        else
-        {
-            // Fallback: Create a brand new batch execution ledger when no key is provided
-            entities = await CreateSyncBatch(
-                ctx => dbSetSelector(ctx)
-                .Where(e => e.SyncStatus == SyncStatus.PendingInsert
-                            && e.StoredFile != null
-                            && e.StoredFile.StoredFileUploadDetails == null)
-                .OrderBy(x => x.Id)
-                .AsNoTracking(),
-                activeBatchId,
-                SyncType.GetUploadUrls,
-                cancellationToken);
-        }
-
-        if (entities.Count == 0) { return; }
-
-        // Out-of-process API execution hop
-        var requestItems = entities
-            .Select(e => new CreateUploadUrlRequestItem(e.StoredFile!.Type, e.Id))
-            .ToList();
-
-        using var response = await apiCall(
-            new CreateUploadUrlRequest(requestItems),
-            activeBatchId,
-            cancellationToken);
-        response.EnsureSuccessStatusCode();
-
-        var apiResult = await response.Content.ReadFromJsonAsync<UploadUrlsResponse>(cancellationToken);
-        if (apiResult?.Map is null || apiResult.Map.Count == 0) { return; }
-
-        using var context = await dbFactory.CreateDbContextAsync();
-
-        foreach (var storedFile in entities)
-        {
-            if (apiResult.Map.TryGetValue(storedFile.Id, out var responseItem))
-            {
-                context.StoredFileUploadDetails.Add(new StoredFileUploadDetails
-                {
-                    Id = responseItem.FileId,
-                    Url = responseItem.Url,
-                    StoredFileId = storedFile.Id
-                });
-            }
-        }
-
-        context.SyncBatches.Remove(new SyncBatch { Id = activeBatchId });
-        await context.SaveChangesAsync(cancellationToken);
-    }
-
     private async Task<IReadOnlyCollection<(TEntity Client, TEntity Server)>> Sync<
         TEntity,
         TSyncableModel>(
@@ -1052,8 +869,6 @@ public class SyncService(
             .ReadFromJsonAsync<SyncResponse<TSyncableModel>>(cancellationToken);
         if (result is null) { return []; }
 
-        using var context = await dbFactory.CreateDbContextAsync();
-
         var conflictedIds = result
             .Conflicts
             .Select(c => c.Id)
@@ -1062,71 +877,203 @@ public class SyncService(
         var successfulIds = entities
             .Where(e => !conflictedIds.Contains(e.Id))
             .Select(e => e.Id)
-            .ToHashSet();
-
-        var recordsToUpdate = await dbSetSelector(context)
-            .Where(x => successfulIds.Contains(x.Id))
-            .ToListAsync(cancellationToken);
-
-        foreach (var item in recordsToUpdate)
-        {
-            item.SyncStatus = SyncStatus.Synced;
-        }
-
-        var batchToDelete = await context
-            .SyncBatches
-            .FindAsync([batchId], cancellationToken);
-        if (batchToDelete is not null)
-        {
-            context.SyncBatches.Remove(batchToDelete);
-        }
-
-        await context.SaveChangesAsync(cancellationToken);
-
-        var serverRecords = result
-            .Conflicts
-            .Select(mapToEntity)
             .ToList();
 
-        var clientRecords = entities
+        using var context = await dbFactory.CreateDbContextAsync();
+        // Open an explicit transaction to ensure atomic updates and deletions
+        using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+        
+        try
+        {
+            if (successfulIds.Count > 0)
+            {
+                await dbSetSelector(context)
+                    .Where(x => successfulIds.Contains(x.Id))
+                    .ExecuteUpdateAsync(s => s.SetProperty(x => x.SyncStatus, SyncStatus.Synced), cancellationToken);
+            }
+
+            await context.SyncBatches
+                .Where(b => b.Id == batchId)
+                .ExecuteDeleteAsync(cancellationToken);
+
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw;
+        }
+
+        var clientMap = entities
             .Where(e => conflictedIds.Contains(e.Id))
-            .ToList();
+            .ToDictionary(e => e.Id);
 
-        return [.. clientRecords.Zip(serverRecords, (c, s) => (Client: c, Server: s))];
+        return [.. result.Conflicts
+            .Select(conflict =>
+            {
+                var server = mapToEntity(conflict);
+                // Safely extract the exact matching client side counterpart
+                return (Client: clientMap[server.Id], Server: server);
+            })];
     }
 
-    private async Task UploadFiles<TEntity>(
-        IReadOnlyCollection<TEntity> items,
-        CancellationToken cancellationToken) where TEntity : class, IHasFile
+    private async Task<bool> UploadFiles<TEntity>(
+       Func<CreateUploadUrlRequest,
+           Guid,
+           CancellationToken,
+           Task<HttpResponseMessage>> apiCall,
+
+       Func<ApplicationDbContext,
+           DbSet<TEntity>> dbSetSelector,
+
+       Guid? batchId,
+
+       CancellationToken cancellationToken) where TEntity : class, IHasFile
     {
-        // Build a list of asynchronous upload tasks running concurrently
-        var uploadTasks = items
-            .Select(async item =>
+        var activeBatchId = Guid.NewGuid();
+        var entityTypeName = typeof(TEntity).Name;
+        List<TEntity> pendingItems = [];
+
+        if (batchId.HasValue && batchId.Value != Guid.Empty)
+        {
+            using var checkContext = await dbFactory.CreateDbContextAsync();
+
+            var existingBatch = await checkContext.SyncBatches
+                .FirstOrDefaultAsync(x => x.Id == batchId.Value
+                                          && x.EntityTypeName == entityTypeName
+                                          && x.Type == SyncType.UploadFiles,
+                                          cancellationToken);
+            
+            if (existingBatch is null) { return false; }
+
+            activeBatchId = batchId.Value;
+            var trackedIds = JsonSerializer.Deserialize<List<Guid>>(existingBatch.SerializedEntityIds) ?? [];
+
+            if (trackedIds.Count > 0)
             {
-                var file = item.StoredFile;
-                if (file is null
-                    || file.StoredFileUploadDetails is null
-                    || file.Bytes.Length == 0)
+                pendingItems = await dbSetSelector(checkContext)
+                    .Where(e => trackedIds.Contains(e.Id))
+                    .AsNoTracking()
+                    .ToListAsync(cancellationToken);
+            }
+        }
+        else
+        {
+            pendingItems = await CreateSyncBatch(
+                ctx => dbSetSelector(ctx)
+                .Where(e => e.SyncStatus == SyncStatus.PendingInsert
+                            && e.StoredFile != null
+                            && e.StoredFile.ServerFileId == null)
+                .OrderBy(x => x.Id),
+                activeBatchId,
+                SyncType.UploadFiles,
+                cancellationToken);
+        }
+
+        if (pendingItems.Count == 0) { return false; }
+
+        var requestItems = pendingItems
+            .Select(e => new CreateUploadUrlRequestItem(e.StoredFile!.Type, e.Id))
+            .ToList();
+        // If process crashes mid flight and a sync batch is resumed
+        // the server will send the same storage urls and file ids it sent previously
+        // the server's cache duration will be approximately that of the TTL of the urls
+        using var response = await apiCall(
+            new CreateUploadUrlRequest(requestItems),
+            activeBatchId,
+            cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var apiResult = await response.Content.ReadFromJsonAsync<UploadUrlsResponse>(cancellationToken);
+
+        var updatesMap = new Dictionary<Guid, Guid>();
+        var uploadTasks = new List<Task>();
+
+        foreach (var entity in pendingItems)
+        {
+            if (entity.StoredFile != null && apiResult!.Map.TryGetValue(entity.Id, out var responseItem))
+            {
+                updatesMap[entity.StoredFile.Id] = responseItem.FileId;
+
+                uploadTasks.Add(Task.Run(async () =>
                 {
-                    return;
-                }
+                    using var blobRequest = new HttpRequestMessage(HttpMethod.Put, responseItem.Url);
+                    blobRequest.Content = new ByteArrayContent(entity.StoredFile.Bytes);
+                    blobRequest.Content.Headers.ContentType = new MediaTypeHeaderValue(entity.StoredFile.Type);
+                    blobRequest.Headers.Add("x-ms-blob-type", "BlockBlob");
 
-                using var blobRequest = new HttpRequestMessage(HttpMethod.Put, file.StoredFileUploadDetails.Url);
+                    using var blobResponse = await apiClient.HttpClient.SendAsync(
+                        blobRequest,
+                        HttpCompletionOption.ResponseHeadersRead,
+                        cancellationToken);
 
-                blobRequest.Content = new ByteArrayContent(file.Bytes);
-                blobRequest.Content.Headers.ContentType = new MediaTypeHeaderValue(file.Type);
-
-                // Azure mandatory header required for Block Blob generation paths
-                blobRequest.Headers.Add("x-ms-blob-type", "BlockBlob");
-
-                using var response = await apiClient.HttpClient.SendAsync(
-                    blobRequest,
-                    HttpCompletionOption.ResponseHeadersRead,
-                    cancellationToken);
-
-                response.EnsureSuccessStatusCode();
-            });
-
+                    blobResponse.EnsureSuccessStatusCode();
+                }, cancellationToken));
+            }
+        }
         await Task.WhenAll(uploadTasks);
+
+        using var context = await dbFactory.CreateDbContextAsync();
+        using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+
+        try
+        {
+            if (updatesMap.Count > 0)
+            {
+                var filesToUpdate = await context.StoredFiles
+                    .Where(f => updatesMap.Keys.Contains(f.Id))
+                    .ToListAsync(cancellationToken);
+
+                foreach (var file in filesToUpdate)
+                {
+                    if (updatesMap.TryGetValue(file.Id, out var ServerId))
+                    {
+                        file.ServerFileId = ServerId;
+                    }
+                }
+            }
+
+            await context.SyncBatches
+                .Where(b => b.Id == activeBatchId)
+                .ExecuteDeleteAsync(cancellationToken);
+
+            await context.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw;
+        }
+
+        return pendingItems.Count >= Api.Contracts.Constants.MaxLengthOfList;
+    }
+
+    private async Task<List<TEntity>> CreateSyncBatch<TEntity>(
+        Func<ApplicationDbContext, IQueryable<TEntity>> querySelector,
+        Guid batchId,
+        SyncType type,
+        CancellationToken cancellationToken) where TEntity : class, ISyncableEntity
+    {
+        using var context = await dbFactory.CreateDbContextAsync();
+
+        var entities = await querySelector(context)
+            .Take(Api.Contracts.Constants.MaxLengthOfList)
+            .ToListAsync(cancellationToken);
+
+        if (entities.Count == 0) { return entities; }
+
+        var batch = new SyncBatch
+        {
+            Id = batchId,
+            EntityTypeName = typeof(TEntity).Name,
+            SerializedEntityIds = JsonSerializer.Serialize(entities.Select(x => x.Id).ToList()),
+            Type = type,
+            CreatedAt = timeProvider.GetUtcNow().DateTime
+        };
+
+        context.SyncBatches.Add(batch);
+        await context.SaveChangesAsync(cancellationToken);
+
+        return entities;
     }
 }

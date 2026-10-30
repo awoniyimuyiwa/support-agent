@@ -79,10 +79,11 @@ public static class BrowserFile
                 return "Duplicate version detected. This file content matches that of another existing version.";
             }
 
-            // Recycle or initialize the attached StoredFile node reference safely
             var storedFile = existingVersion.StoredFile ?? new StoredFile { Id = Guid.NewGuid() };
             storedFile.Bytes = fileBytes;
             storedFile.Type = mimeType;
+            // Mark as not uploaded
+            storedFile.ServerFileId = null;
 
             existingVersion.ContentHash = hash;
             existingVersion.StoredFile = storedFile;

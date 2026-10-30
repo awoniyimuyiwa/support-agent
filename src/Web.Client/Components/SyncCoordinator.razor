@@ -510,7 +510,6 @@
             entitiesProcessed = true;
         }
         await SyncService.FetchDocumentCategoryDeltas(cancellationToken);
-        if (documentCategoryConflicts.Count >= Constants.MaxLengthOfList) entitiesProcessed = true;
 
         var documentConflicts = await SyncService.Sync<Document>(
             ctx => ctx.Documents,
@@ -523,25 +522,29 @@
             entitiesProcessed = true;
         }
         await SyncService.FetchDocumentDeltas(cancellationToken);
-        if (documentConflicts.Count >= Constants.MaxLengthOfList) entitiesProcessed = true;
 
-        var versionsPushed = await SyncService.CreateDocumentVersions(
+        var versionsUploaded = await SyncService.UploadDocumentVersionFiles(
             batchId: null,
             cancellationToken);
-        if (versionsPushed) entitiesProcessed = true;
+        // If either it was already true, or versions were uploaded, it becomes/stays true
+        entitiesProcessed |= versionsUploaded;
 
-        var documentVersionConflicts = await SyncService.Sync<DocumentVersion>(
+        var versionsCreated = await SyncService.CreateDocumentVersions(
+            batchId: null,
+            cancellationToken);
+        entitiesProcessed |= versionsCreated;
+
+        var versionConflicts = await SyncService.Sync<DocumentVersion>(
                 ctx => ctx.DocumentVersions,
                 SyncService.SyncDocumentVersions,
                 cancellationToken);
-        if (documentVersionConflicts.Any())
+        if (versionConflicts.Any())
         {
-            _documentVersionConflicts = documentVersionConflicts;
+            _documentVersionConflicts = versionConflicts;
             _showDocumentVersionModal = true;
             entitiesProcessed = true;
         }
         await SyncService.FetchDocumentVersionDeltas(cancellationToken);
-        if (documentVersionConflicts.Count >= Constants.MaxLengthOfList) entitiesProcessed = true;
 
         return entitiesProcessed;
     }

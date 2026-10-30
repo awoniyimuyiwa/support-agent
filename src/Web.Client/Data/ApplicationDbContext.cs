@@ -12,8 +12,6 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
 
     public DbSet<StoredFile> StoredFiles => Set<StoredFile>();
 
-    public DbSet<StoredFileUploadDetails> StoredFileUploadDetails => Set<StoredFileUploadDetails>();
-
     public DbSet<SyncBatch> SyncBatches => Set<SyncBatch>();
 
     public DbSet<SyncMetadata> SyncMetadatas => Set<SyncMetadata>();
@@ -42,11 +40,6 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             // Composite Index (Covers BOTH selected, and covers searches where ONLY Status is picked)
             b.HasIndex(t => new { t.Status, t.Priority });
         });
-
-        modelBuilder.Entity<StoredFile>()
-            .HasOne(f => f.StoredFileUploadDetails)
-            .WithOne()
-           .HasForeignKey<StoredFileUploadDetails>(d => d.StoredFileId);
 
         // Map the tracking SyncStatus enum values as direct integers or bytes
         var syncableEntityTypes = modelBuilder.Model.GetEntityTypes()

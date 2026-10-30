@@ -8,14 +8,8 @@ public class StoredFile
 
     public string Type { get; set; } = string.Empty;
 
-    public StoredFileUploadDetails? StoredFileUploadDetails { get; set; }
-}
-
-public class StoredFileUploadDetails
-{
-    public Guid Id { get; set; }
-
-    public string Url { get; set; } = string.Empty;
-
-    public Guid StoredFileId { get; set; }
+    /// <summary>
+    /// Set when file has been successfully uploaded
+    /// </summary>
+    public Guid? ServerFileId { get; set; }
 }
