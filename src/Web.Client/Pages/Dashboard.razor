@@ -25,7 +25,7 @@
                 <small class="text-secondary">Support Agent Productivity Desk</small>
             </div>
         </div>
-        <button class="btn btn-white border shadow-sm btn-sm fw-semibold d-flex align-items-center gap-2" @onclick="RefreshStats">
+        <button class="btn btn-white border shadow-sm btn-sm fw-semibold d-flex align-items-center gap-2" @onclick="RefreshStats" disabled="@_isLoading">
             <span class="bi bi-arrow-clockwise @_refreshingClass"></span> Refresh
         </button>
     </div>
