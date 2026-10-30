@@ -43,6 +43,15 @@ builder.Services.AddHttpClient<ApiClient>(client =>
             || response.StatusCode == System.Net.HttpStatusCode.TooManyRequests 
             || response.StatusCode == System.Net.HttpStatusCode.RequestTimeout)
         .Handle<HttpRequestException>();
+
+    // Default is 2s
+    options.AttemptTimeout.Timeout = TimeSpan.FromSeconds(30);
+
+    // Must be >= double the AttemptTimeout (30s * 2 = 60s)
+    options.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(60);
+
+    // Default is 10s
+    options.TotalRequestTimeout.Timeout = TimeSpan.FromMinutes(2);
 });
 
 // Register the sWebAssembly SQLite persistent engine factory
