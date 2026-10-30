@@ -1,6 +1,19 @@
-@ApiService_HostAddress = http://localhost:5314
+@ApiService_HostAddress = https://localhost:7467
 
-GET {{ApiService_HostAddress}}/weatherforecast/
-Accept: application/json
+# @name login
+POST {{ApiService_HostAddress}}/api/v1/auth/login?useCookies=false
+Content-Type: application/json
+
+{
+  "email": "<Email>",
+  "password": "<Password>"
+}
 
 ###
+
+@authToken = {{login.response.body.$.accessToken}}
+
+# @name getAccountInfo
+GET {{ApiService_HostAddress}}/api/v1/account/info
+Authorization: Bearer {{authToken}}
+Accept: application/json
