@@ -486,7 +486,10 @@ public class SyncService(
         IReadOnlyCollection<Ticket> tickets,
         CancellationToken cancellationToken = default)
     {
-        var isAdmin = await authStateProvider.IsAdmin();
+        var authState = await authStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        var isAdmin = user.IsAdmin;
+        var userId = user.Id;
 
         var conflicts = await Sync(
             batchId,
@@ -534,19 +537,22 @@ public class SyncService(
                 SyncStatus = SyncStatus.Synced
             },
 
-            dbSetSelector: ctx => ctx.Tickets,
+            dbSetSelector: ctx => isAdmin ? ctx.Tickets : ctx.Tickets.Where(t => t.CreatedByUserId == userId) ,
             cancellationToken);
 
         // For Non-Admins, process and strip out specific server-side conflicts
         if (!isAdmin && conflicts.Count > 0)
         {
-            var idsToDelete = conflicts
-                .Where(t => t.Server.IsDeleted && t.Server.ConcurrencyStamp == t.Client.ConcurrencyStamp)
+            // The server returns a conflict payload for tickets the user didn't create (or lost access to)
+            // to signal an authorization violation. We purge them from this user's conflict UI but leave them in the local DB for shared users/admins.
+            var idsToRemove = conflicts
+                .Where(t => t.Server.CreatedByUserId != userId)
                 .Select(t => t.Server.Id)
-                .ToList();
+                .ToHashSet();
 
+            // The user created the ticket, but it was closed or modified on the server, meaning they can no longer update it.
             var idsToUpdate = conflicts
-                .Where(t => t.Server.Status != TicketStatus.Open)
+                .Where(t => t.Server.Status != TicketStatus.Open && t.Server.CreatedByUserId == userId)
                 .Select(t => t.Server.Id)
                 .ToList();
 
@@ -555,14 +561,7 @@ public class SyncService(
 
             try
             {
-                if (idsToDelete.Count > 0)
-                {
-                    await context.Tickets
-                        .Where(t => idsToDelete.Contains(t.Id))
-                        .ExecuteDeleteAsync(cancellationToken);
-                }
-
-                // Fetch and batch-update records inside the same transaction
+                // Align with the server's latest changes
                 if (idsToUpdate.Count > 0)
                 {
                     var clientMap = await context.Tickets
@@ -584,8 +583,6 @@ public class SyncService(
                             client.ConcurrencyStamp = serverTicket.ConcurrencyStamp;
                             client.IsDeleted = serverTicket.IsDeleted;
                             client.SyncStatus = SyncStatus.Synced;
-
-                            context.Tickets.Update(client);
                         }
                     }
 
@@ -600,9 +597,9 @@ public class SyncService(
                 throw;
             }
 
-            // Build and return the remaining conflicts
+            // Filter out both sets so the user doesn't have to deal with them in the UI
             var filteredConflicts = conflicts
-                .Where(t => !idsToDelete.Contains(t.Server.Id) && !idsToUpdate.Contains(t.Server.Id))
+                .Where(t => !idsToRemove.Contains(t.Server.Id) && !idsToUpdate.Contains(t.Server.Id))
                 .ToList();
 
             return filteredConflicts.AsReadOnly();
@@ -856,7 +853,7 @@ public class SyncService(
         IReadOnlyCollection<TEntity> entities,
         Func<IReadOnlyCollection<TEntity>, Task<HttpResponseMessage>> apiCall,
         Func<TSyncableModel, TEntity> mapToEntity,
-        Func<ApplicationDbContext, DbSet<TEntity>> dbSetSelector,
+        Func<ApplicationDbContext, IQueryable<TEntity>> dbSetSelector,
         CancellationToken cancellationToken)
 
         where TEntity : class, ISyncableEntity
