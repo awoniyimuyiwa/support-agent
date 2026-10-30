@@ -179,7 +179,6 @@ builder.Services.AddHttpClient<ApiClient>(client =>
 // .NET registers a five-strategy resilience pipeline out of the box (Total Timeout, Retry, Circuit Breaker, Attempt Timeout, and Rate Limiter).
 .AddStandardResilienceHandler(options =>
 {
-    // .Net implements 5 resiliene startegies out of the box
     options.Retry.MaxRetryAttempts = 3;
     options.Retry.BackoffType = DelayBackoffType.Exponential;
     options.Retry.UseJitter = true;
