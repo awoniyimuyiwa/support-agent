@@ -41,6 +41,20 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             b.HasIndex(t => new { t.Status, t.Priority });
         });
 
+        modelBuilder.Entity<SyncMetadata>(b =>
+        {
+            // Enforce one sync record per user, per entity type
+            // This handles normal users (UserId is not null)
+            b.HasIndex(s => new { s.UserId, s.EntityTypeName })
+             .IsUnique()
+             .HasFilter("[UserId] IS NOT NULL");
+
+            // Enforce a single admin record (UserId is null) per entity type
+            b.HasIndex(s => s.EntityTypeName)
+             .IsUnique()
+             .HasFilter("[UserId] IS NULL");
+        });
+
         // Map the tracking SyncStatus enum values as direct integers or bytes
         var syncableEntityTypes = modelBuilder.Model.GetEntityTypes()
             .Where(et => typeof(ISyncableEntity).IsAssignableFrom(et.ClrType))

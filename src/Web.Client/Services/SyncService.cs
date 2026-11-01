@@ -756,25 +756,25 @@ public class SyncService(
     {
         var entityTypeName = typeof(TEntity).Name;
         bool hasMore = true;
+        var user = (await authStateProvider.GetAuthenticationStateAsync()).User;
+        var userId = user.Id;
+        var isAdmin = user.IsAdmin;
 
         while (hasMore)
         {
             string? nextCursorToken = null;
-
-            using (var readContext = await dbFactory.CreateDbContextAsync())
-            {
-                var syncMetadata = await readContext.SyncMetadatas
-                    .FirstOrDefaultAsync(x => x.EntityTypeName == entityTypeName, cancellationToken);
-
-                nextCursorToken = syncMetadata?.Cursor;
-            }
+            using var readContext = await dbFactory.CreateDbContextAsync();
+            var syncMetadata = await (isAdmin
+                ? readContext.SyncMetadatas.Where(s => s.UserId == null)
+               : readContext.SyncMetadatas.Where(s => s.UserId == userId))
+               .FirstOrDefaultAsync(x => x.EntityTypeName == entityTypeName, cancellationToken);
+            nextCursorToken = syncMetadata?.Cursor;
 
             using var response = await apiCall(nextCursorToken, cancellationToken);
             response.EnsureSuccessStatusCode();
           
             var result = await response.Content
                 .ReadFromJsonAsync<DeltaResponse<TSyncableModel>>(cancellationToken);
-
             if (result is null || result.Items.Count == 0)
             {
                 hasMore = false;
@@ -818,17 +818,25 @@ public class SyncService(
                     }
                 }
 
-                var metadata = await writeContext.SyncMetadatas
+                var metadata = await (isAdmin
+                    ? readContext.SyncMetadatas.Where(s => s.UserId == null)
+                    : readContext.SyncMetadatas.Where(s => s.UserId == userId))
                     .FirstOrDefaultAsync(x => x.EntityTypeName == entityTypeName, cancellationToken);
-
                 if (metadata is null)
                 {
-                    metadata = new SyncMetadata { EntityTypeName = entityTypeName };
+                    metadata = new SyncMetadata 
+                    { 
+                        Id = Guid.NewGuid(),
+                        EntityTypeName = entityTypeName,
+                        UserId = isAdmin ? null : userId
+                    };
                     writeContext.SyncMetadatas.Add(metadata);
                 }
 
                 metadata.Cursor = result.Next;
-                metadata.LastSyncedAt = result.Until.DateTime; // Server clock drift immunity preserved!
+
+                // Use the server's timestamp
+                metadata.LastSyncedAt = result.Until.DateTime; 
 
                 if (string.IsNullOrWhiteSpace(result.Next))
                 {
