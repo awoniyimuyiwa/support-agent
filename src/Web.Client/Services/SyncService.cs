@@ -792,15 +792,25 @@ public class SyncService(
                 .Where(x => deltaIds.Contains(x.Id))
                 .ToDictionaryAsync(x => x.Id, cancellationToken);
 
-            // Pre-fetch all local PendingInsert entities for this type if name selection is active
-            // This stops SQLite WASM from executing multiple sub-queries inside the foreach loop
-            List<TEntity> localPendingInserts = new();
+            Dictionary<string, TEntity> localUnsyncedNames = new(StringComparer.OrdinalIgnoreCase);
             if (nameSelector is not null)
             {
-                localPendingInserts = await dbSet
+                var unsyncedRecords = await dbSet
                     .IgnoreQueryFilters()
-                    .Where(x => x.SyncStatus == SyncStatus.PendingInsert)
+                    .Where(x => x.SyncStatus == SyncStatus.PendingInsert
+                             || x.SyncStatus == SyncStatus.PendingUpdate)
                     .ToListAsync(cancellationToken);
+
+                // Group by clean, trimmed names to build the lookup dictionary
+                foreach (var record in unsyncedRecords)
+                {
+                    var name = nameSelector(record)?.Trim();
+                    if (!string.IsNullOrWhiteSpace(name))
+                    {
+                        // If duplicate names exist locally, keep the first one encountered
+                        localUnsyncedNames.TryAdd(name, record);
+                    }
+                }
             }
 
             foreach (var item in result.Items)
@@ -817,6 +827,23 @@ public class SyncService(
                         continue;
                     }
 
+                    if (nameSelector is not null)
+                    {
+                        // Temporarily build a mockup or read the target value directly from the delta item payload.
+                        // Since mapToEntity/createFunc builds a proper typed entity instance from the delta model:
+                        var serverMockup = createFunc(item);
+                        var incomingServerName = nameSelector(serverMockup);
+
+                        if (!string.IsNullOrWhiteSpace(incomingServerName) 
+                            && localUnsyncedNames.TryGetValue(incomingServerName, out var conflictingRecord))
+                        {
+                            if (conflictingRecord.Id != item.Id)
+                            {
+                                continue;
+                            }
+                        }
+                    }
+
                     updateAction(clientRecord, item);
                     dbSet.Update(clientRecord);
                 }
@@ -829,13 +856,10 @@ public class SyncService(
                     if (nameSelector is not null)
                     {
                         var newRecordName = nameSelector(newRecord);
-
-                        // Check if an unsynced offline insert already claims this exact name case-insensitively
-                        bool nameConflictExists = localPendingInserts.Any(x =>
-                            string.Equals(nameSelector(x)?.Trim(), newRecordName?.Trim(), StringComparison.OrdinalIgnoreCase));
-                        if (nameConflictExists)
+                        if (!string.IsNullOrWhiteSpace(newRecordName) 
+                            && localUnsyncedNames.ContainsKey(newRecordName))
                         {
-                            continue; // Skip adding the server record for now
+                            continue;
                         }
                     }
 
