@@ -69,11 +69,6 @@ var host = builder.Build();
 
 var logger = host.Services.GetRequiredService<ILogger<Program>>();
 logger.LogInformation("Web.Client WebAssembly engine has successfully booted inside the browser sandbox!");
-
-if (OperatingSystem.IsBrowser())
-{
-    await InitializeStorage(host.Services, logger);
-}
    
 AppDomain.CurrentDomain.UnhandledException += (sender, errorArgs) =>
 {
@@ -97,26 +92,3 @@ TaskScheduler.UnobservedTaskException += (sender, errorArgs) =>
 };
 
 await host.RunAsync();
-
-/// <summary>
-/// Orchestrates pre-flight cache allocation
-/// </summary>
-static async Task InitializeStorage(IServiceProvider services, ILogger logger)
-{
-    try
-    {
-        var dbFactory = services.GetRequiredService<ISqliteWasmDbContextFactory<ApplicationDbContext>>();
-
-        using var context = await dbFactory.CreateDbContextAsync();
-
-        // Ensure the SQLite schema is initialized and up to date inside IndexedDB
-        // This creates tables dynamically on first visit
-        await context.Database.EnsureCreatedAsync();
-        
-        logger.LogInformation("Local SQLite storage engine validation finished.");
-    }
-    catch (Exception ex)
-    {
-        logger.LogError(ex, "Pre-flight client database storage initialization pass failed: {Message}", ex.Message);
-    }
-}

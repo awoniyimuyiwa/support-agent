@@ -6,12 +6,14 @@
 @using Domain.Shared
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.EntityFrameworkCore
+@using SqliteWasmHelper
 @using Web.Client.Components
 @using Web.Client.Data
 @using Web.Client.Models
 
-@inject IDbContextFactory<ApplicationDbContext> DbContextFactory
+@inject ISqliteWasmDbContextFactory<ApplicationDbContext> DbContextFactory
 @inject ILogger<DocumentCategories> Logger
+@inject TimeProvider TimeProvider
 @implements IDisposable
 
 <CustomPageTitle Value="Document Categories" />
@@ -124,7 +126,7 @@
                                     <button class="btn btn-outline-secondary btn-sm border-0" @onclick="() => OpenEditModal(category)" title="Edit">
                                         <span class="bi @(!string.IsNullOrWhiteSpace(category.SerializedErrors) ? "bi-exclamation-circle-fill text-danger" : "bi-pencil-square")"></span>
                                     </button>
-                                    <button class="btn btn-outline-danger btn-sm border-0" @onclick="() => Delete(category.Id)" title="Delete">
+                                    <button class="btn btn-outline-danger btn-sm border-0" @onclick="() => PromptDelete(category)" title="Delete">
                                         <span class="bi bi-trash3"></span>
                                     </button>
                                 </td>
@@ -143,7 +145,7 @@
 </div>
 
 
-@if (_showModal)
+@if (_showUpsertModal)
 {
     <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);" role="dialog">
         <div class="modal-dialog modal-dialog-centered" role="document">
@@ -156,7 +158,7 @@
                             <span class="bi @(_categoryEditedId.HasValue ? "bi-pencil-square" : "bi-plus-circle") me-2"></span>
                             @(_categoryEditedId.HasValue ? "Edit" : "Create")
                         </h5>
-                        <button type="button" class="btn-close" @onclick="CloseModal" aria-label="Close"></button>
+                        <button type="button" class="btn-close" @onclick="CloseUpsertModal" aria-label="Close"></button>
                     </div>
 
                     <div class="modal-body py-4">
@@ -174,7 +176,7 @@
                     </div>
 
                     <div class="modal-footer bg-light border-0">
-                        <button type="button" class="btn btn-outline-secondary fw-semibold px-4" @onclick="CloseModal">Cancel</button>
+                        <button type="button" class="btn btn-outline-secondary fw-semibold px-4" @onclick="CloseUpsertModal">Cancel</button>
                         <button type="submit" class="btn btn-primary fw-semibold px-4">
                             <span class="bi bi-check-circle-fill me-1"></span> Save
                         </button>
@@ -185,14 +187,52 @@
     </div>
 }
 
+@if (_showDeleteModal && _categoryToDelete is not null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);" role="dialog">
+        <div class="modal-dialog modal-dialog-centered" role="document">
+            <div class="modal-content border-0 shadow-lg">
+                <div class="modal-header bg-danger-subtle text-danger-emphasis">
+                    <h5 class="modal-title fw-bold d-flex align-items-center gap-2">
+                        <span class="bi bi-exclamation-triangle-fill"></span> Delete category
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="CancelDelete" aria-label="Close"></button>
+                </div>
+
+                <div class="modal-body py-4">
+                    <p class="mb-2">Are you sure you want to delete this category?</p>
+                    <div class="p-3 bg-light rounded border font-monospace small text-truncate text-dark fw-bold">
+                        @_categoryToDelete.Name
+                    </div>
+                    <p class="text-danger small mt-3 mb-0 fw-semibold">
+                        <span class="bi bi-info-circle-fill"></span> This will flag the category for background cleanup.
+                    </p>
+                </div>
+
+                <div class="modal-footer bg-light border-0">
+                    <button type="button" class="btn btn-outline-secondary fw-semibold px-4" @onclick="CancelDelete">
+                        Cancel
+                    </button>
+                    <button type="button" class="btn btn-danger fw-semibold px-4 d-flex align-items-center gap-2" @onclick="ConfirmDelete">
+                        <span class="bi bi-trash3-fill"></span> Delete
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     private List<DocumentCategory> _categories = [];
-    private DocumentCategoryFilterModel _filter = new();
-    private DocumentCategoryModel _inputModel = new();
-    private int _totalCount = 0;
 
-    private bool _showModal = false;
+    private DocumentCategoryModel _inputModel = new();
+    private bool _showUpsertModal = false;
+    private bool _showDeleteModal = false;
     private Guid? _categoryEditedId = null;
+    private DocumentCategory? _categoryToDelete = null;
+
+    private DocumentCategoryFilterModel _filter = new();
+    private int _totalCount = 0;
     private CancellationTokenSource? _debounceCts;
 
     private EditContext? _editContext;
@@ -202,7 +242,7 @@
     {
         _debounceCts?.Cancel();
         _debounceCts?.Dispose();
-        
+
         // Unsubscribe to avoid memory leaks
         if (_editContext is not null)
         {
@@ -218,24 +258,38 @@
         }
     }
 
-    private void CloseModal()
+    private void CancelDelete()
     {
-        if (_editContext is not null)
+        _showDeleteModal = false;
+        _categoryToDelete = null;
+    }
+
+    private async Task ConfirmDelete()
+    {
+        if (_categoryToDelete is null) return;
+
+        var now = TimeProvider.GetUtcNow().DateTime;
+        using var context = await DbContextFactory.CreateDbContextAsync();
+        var category = await context.DocumentCategories.FindAsync(_categoryToDelete.Id);
+
+        if (category is not null)
         {
-            _editContext.OnFieldChanged -= HandleFieldChanged;
+            category.IsDeleted = true;
+            category.SyncStatus = SyncStatus.PendingDelete;
+            category.UpdatedAt = now;
+            await context.SaveChangesAsync();
         }
 
-        _showModal = false;
-        _categoryEditedId = null;
-        _editContext = null;
-        _messageStore = null;
+        _showDeleteModal = false;
+        _categoryToDelete = null;
+        await ApplyFilter();
     }
-      
+
     private async Task Delete(Guid id)
     {
         using var context = await DbContextFactory.CreateDbContextAsync();
         var category = await context.DocumentCategories.FindAsync(id);
-        
+
         if (category is not null)
         {
             category.IsDeleted = true;
@@ -252,7 +306,7 @@
 
         // Clear only the error associated with the specific field the user modified
         _messageStore.Clear(e.FieldIdentifier);
-        
+
         // Notify the UI to instantly drop the validation styling flag
         _editContext.NotifyValidationStateChanged();
     }
@@ -280,14 +334,14 @@
     {
         _categoryEditedId = null;
         _inputModel = new DocumentCategoryModel();
-        
+
         _editContext = new EditContext(_inputModel);
         _messageStore = new ValidationMessageStore(_editContext);
-        
+
         // Attach listener hook
         _editContext.OnFieldChanged += HandleFieldChanged;
-        
-        _showModal = true;
+
+        _showUpsertModal = true;
     }
 
     private void OpenEditModal(DocumentCategory category)
@@ -301,7 +355,7 @@
 
         _editContext = new EditContext(_inputModel);
         _messageStore = new ValidationMessageStore(_editContext);
-        
+
         _editContext.OnFieldChanged += HandleFieldChanged;
 
         if (!string.IsNullOrWhiteSpace(category.SerializedErrors))
@@ -321,7 +375,13 @@
             }
         }
 
-        _showModal = true;
+        _showUpsertModal = true;
+    }
+
+    private void PromptDelete(DocumentCategory category)
+    {
+        _categoryToDelete = category;
+        _showDeleteModal = true;
     }
 
     private async Task ResetPage()
@@ -335,8 +395,23 @@
         if (_editContext is null || !_editContext.Validate()) return;
 
         using var context = await DbContextFactory.CreateDbContextAsync();
-        var now = DateTime.UtcNow;
-        
+
+        var nameExists = await context.DocumentCategories
+            .AnyAsync(dc => dc.Name == _inputModel.Name
+                        && !dc.IsDeleted
+                        && dc.Id != _categoryEditedId);
+        if (nameExists)
+        {
+            // Attach the custom validation error to the EditContext
+            var fieldIdentifier = new FieldIdentifier(_inputModel, nameof(_inputModel.Name));
+            _messageStore!.Clear(fieldIdentifier);
+            _messageStore!.Add(fieldIdentifier, "A category with this name already exists.");
+            _editContext.NotifyValidationStateChanged();
+            return;
+        }
+
+        var now = TimeProvider.GetUtcNow().DateTime;
+
         if (_categoryEditedId.HasValue)
         {
             var existingCategory = await context.DocumentCategories.FindAsync(_categoryEditedId.Value);
@@ -345,12 +420,12 @@
                 existingCategory.Name = _inputModel.Name.Trim();
                 existingCategory.Description = string.IsNullOrWhiteSpace(_inputModel.Description) ? null : _inputModel.Description.Trim();
                 existingCategory.UpdatedAt = now;
-                
+
                 existingCategory.SerializedErrors = null;
                 existingCategory.SyncStatus = SyncStatus.PendingUpdate;
-                
+
                 await context.SaveChangesAsync();
-                CloseModal();
+                CloseUpsertModal();
                 await ApplyFilter();
             }
         }
@@ -368,7 +443,7 @@
             };
             context.DocumentCategories.Add(newCategory);
             await context.SaveChangesAsync();
-            CloseModal();
+            CloseUpsertModal();
             _filter.Reset();
             await ApplyFilter();
         }
@@ -396,7 +471,6 @@
             query = query.Where(c => c.SyncStatus == _filter.SyncStatusFilter.Value);
         }
 
-        _totalCount = await query.CountAsync();
         query = _filter.SortColumn switch
         {
             nameof(DocumentCategory.CreatedAt) => _filter.SortDescending ? query.OrderByDescending(c => c.CreatedAt) : query.OrderBy(c => c.CreatedAt),
@@ -404,10 +478,25 @@
             _ => _filter.SortDescending ? query.OrderByDescending(c => c.Name) : query.OrderBy(c => c.Name)
         };
 
+        _totalCount = await query.CountAsync();
         _categories = await query
             .Skip((_filter.PageNumber - 1) * _filter.PageSize)
             .Take(_filter.PageSize)
             .ToListAsync();
+
         StateHasChanged();
+    }
+
+    private void CloseUpsertModal()
+    {
+        if (_editContext is not null)
+        {
+            _editContext.OnFieldChanged -= HandleFieldChanged;
+        }
+
+        _showUpsertModal = false;
+        _categoryEditedId = null;
+        _editContext = null;
+        _messageStore = null;
     }
 }

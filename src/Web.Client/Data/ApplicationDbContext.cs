@@ -1,3 +1,4 @@
+using Domain.Shared;
 using Microsoft.EntityFrameworkCore;
 
 namespace Web.Client.Data;
@@ -22,11 +23,35 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     {
         base.OnModelCreating(modelBuilder);
 
-        modelBuilder.Entity<Document>()
-           .HasOne(d => d.DocumentCategory)
-           .WithMany()
-           .HasForeignKey(d => d.DocumentCategoryId)
-           .OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<Document>(b =>
+        {
+            b.Property(d => d.Name)
+           .HasMaxLength(Constants.StringMaxLength)
+           .HasAnnotation("Relational:Collation", "NOCASE")
+           .IsRequired();
+
+            // Include IsDeleted in the unique index so you can have 
+            // two files with the same name if one is soft-deleted.
+            b.HasIndex(d => new { d.Name, d.IsDeleted }).IsUnique();
+
+            b.HasOne(d => d.DocumentCategory)
+            .WithMany()
+            .HasForeignKey(d => d.DocumentCategoryId)
+            .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<DocumentCategory>(b =>
+        {
+            b.Property(dc => dc.Name)
+            .HasMaxLength(Constants.StringMaxLength)
+            .HasAnnotation("Relational:Collation", "NOCASE")
+            .IsRequired();
+
+            b.Property(dc => dc.Description)
+            .HasMaxLength(Constants.StringMaxLength);
+
+            b.HasIndex(dc => new { dc.Name, dc.IsDeleted }).IsUnique();
+        });
 
         modelBuilder.Entity<Ticket>(b =>
         {

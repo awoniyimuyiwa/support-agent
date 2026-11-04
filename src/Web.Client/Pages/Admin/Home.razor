@@ -6,9 +6,11 @@
 @using Domain.Shared
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.EntityFrameworkCore
+@using SqliteWasmHelper
 @using Web.Client.Components
 @using Web.Client.Data
-@inject IDbContextFactory<ApplicationDbContext> DbFactory
+
+@inject ISqliteWasmDbContextFactory<ApplicationDbContext> DbFactory
 
 <CustomPageTitle Value="Admin Dashboard" />
 
@@ -185,41 +187,24 @@
             await LoadStats();
             _isLoading = false;
         }
-        else
-        {
-            _isLoading = false;
-        }
     }
 
     private async Task RefreshStats()
     {
-        // Immediately turn on the loading state and start the spin animation
         _isLoading = true;
         _refreshingClass = "spin-animation";
         StateHasChanged();
         await Task.Yield();
 
-        // Run the data loader
         await LoadStats();
-
-        // Only turn off loading in the browser
-        // If the server caught this click, leave _isLoading = true so the
-        // spinner stays up until WebAssembly boots and finishes the job.
-        if (OperatingSystem.IsBrowser())
-        {
-            await Task.Delay(300); // Visual buffer for action confirmation
-            _isLoading = false;
-            _refreshingClass = "";
-        }
+  
+        await Task.Delay(300); // Visual buffer for action confirmation   
+        _isLoading = false;
+        _refreshingClass = "";
     }
 
     private async Task LoadStats()
     {
-        if (!OperatingSystem.IsBrowser())
-        {
-            return;
-        }
-
         using var context = await DbFactory.CreateDbContextAsync();
         var pendingVersions = await context.DocumentVersions.CountAsync(v => v.SyncStatus != SyncStatus.Synced);
         var pendingTickets = await context.Tickets.CountAsync(t => t.SyncStatus != SyncStatus.Synced);

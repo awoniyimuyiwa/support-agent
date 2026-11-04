@@ -125,7 +125,7 @@ public class ApiClient(HttpClient httpClient)
         DocumentSyncRequest batch,
         Guid idempotencyKey,
         CancellationToken cancellationToken = default) => PostBatch(
-            "v1/admin/documents",
+            "v1/admin/documents/sync",
             batch,
             idempotencyKey,
             cancellationToken);
@@ -137,7 +137,7 @@ public class ApiClient(HttpClient httpClient)
         DocumentCategorySyncRequest batch,
         Guid idempotencyKey,
         CancellationToken cancellationToken = default) => PostBatch(
-            "v1/admin/document-categories",
+            "v1/admin/document-categories/sync",
             batch,
             idempotencyKey,
             cancellationToken);
@@ -149,7 +149,7 @@ public class ApiClient(HttpClient httpClient)
         DocumentVersionSyncRequest batch,
         Guid idempotencyKey,
         CancellationToken cancellationToken = default) => PostBatch(
-            "v1/admin/document-versions",
+            "v1/admin/document-versions/sync",
             batch,
             idempotencyKey,
             cancellationToken);
@@ -161,7 +161,7 @@ public class ApiClient(HttpClient httpClient)
         TicketSyncRequest batch,
         Guid idempotencyKey,
         CancellationToken cancellationToken = default) => PostBatch(
-            "v1/tickets",
+            "v1/tickets/sync",
             batch, 
             idempotencyKey, 
             cancellationToken);
@@ -173,7 +173,7 @@ public class ApiClient(HttpClient httpClient)
         FullTicketSyncRequest batch,
         Guid idempotencyKey,
         CancellationToken cancellationToken = default) => PostBatch(
-            "v1/admin/tickets",
+            "v1/admin/tickets/sync",
             batch,
             idempotencyKey,
             cancellationToken);

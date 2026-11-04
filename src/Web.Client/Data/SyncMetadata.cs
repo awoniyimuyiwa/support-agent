@@ -15,5 +15,5 @@ public class SyncMetadata
     /// <summary>
     /// Null for admins; non-null for ordinary users because each user should have their own sync metadata when sharing a device.
     /// </summary>
-    public Guid? UserId { get; internal set; }
+    public Guid? UserId { get; set; }
 }

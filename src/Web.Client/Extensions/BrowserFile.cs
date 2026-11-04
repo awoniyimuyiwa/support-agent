@@ -1,9 +1,6 @@
 ﻿using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.EntityFrameworkCore;
-using System.IO;
-using System.Linq;
 using System.Security.Cryptography;
-using System.Threading.Tasks;
 using Web.Client.Data;
 
 namespace Web.Client.Extensions;
@@ -44,7 +41,6 @@ public static class BrowserFile
                 return (null, "Duplicate version detected. This file content matches that of an existing version.");
             }
 
-            var now = DateTime.UtcNow;
             var documentVersion = new DocumentVersion
             {
                 Id = Guid.NewGuid(),
@@ -56,8 +52,6 @@ public static class BrowserFile
                     Bytes = fileBytes,
                     Type = mimeType
                 },
-                CreatedAt = now,
-                UpdatedAt = now,
                 IsDeleted = false,
                 SyncStatus = SyncStatus.PendingInsert
             };
@@ -87,7 +81,6 @@ public static class BrowserFile
 
             existingVersion.ContentHash = hash;
             existingVersion.StoredFile = storedFile;
-            existingVersion.UpdatedAt = DateTime.UtcNow;
 
             // Re-queue back into the synchronization loop
             existingVersion.SerializedErrors = null;

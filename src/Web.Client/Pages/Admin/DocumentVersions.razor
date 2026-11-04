@@ -6,12 +6,14 @@
 @using Domain.Shared
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.EntityFrameworkCore
+@using SqliteWasmHelper
 @using Web.Client.Components
 @using Web.Client.Data
 @using Web.Client.Extensions
 
-@inject IDbContextFactory<ApplicationDbContext> DbContextFactory
+@inject ISqliteWasmDbContextFactory<ApplicationDbContext> DbContextFactory
 @inject ILogger<DocumentVersions> Logger
+@inject TimeProvider TimeProvider
 
 <CustomPageTitle Value="Document Versions" />
 
@@ -98,7 +100,7 @@
                                             <span class="bi bi-pencil-square"></span> Resolve
                                         </button>
                                     }
-                                    <button class="btn btn-outline-danger btn-sm border-0" @onclick="() => Delete(version.Id)" title="Soft-delete">
+                                    <button class="btn btn-outline-danger btn-sm border-0" @onclick="() => PromptDelete(version)" title="Delete">
                                         <span class="bi bi-trash3-fill"></span> Delete
                                     </button>
                                 </td>
@@ -147,8 +149,8 @@
             <div class="modal-content border-0 shadow-lg">
                 <div class="modal-header bg-light">
                     <h5 class="modal-title fw-bold text-dark">
-                        <span class="bi @(_editingVersion is null ? "bi-plus-circle" : "bi-arrow-repeat") me-2"></span>
-                        @(_editingVersion is null ? "Upload" : "Re-upload")
+                        <span class="bi @(_versionToEdit is null ? "bi-plus-circle" : "bi-arrow-repeat") me-2"></span>
+                        @(_versionToEdit is null ? "Upload" : "Re-upload")
                     </h5>
                     <button type="button" class="btn-close" @onclick="CloseUploadModal" aria-label="Close"></button>
                 </div>
@@ -175,8 +177,43 @@
                     <button type="button" class="btn btn-outline-secondary fw-semibold px-4" @onclick="CloseUploadModal">Cancel</button>
                     <button type="button" class="btn btn-primary fw-semibold px-4" @onclick="Save"
                             disabled="@(_selectedBrowserFile is null || !string.IsNullOrWhiteSpace(_fileValidationError))">
-                        <span class="bi @(_editingVersion is null ? "bi-cloud-arrow-up-fill" : "bi-check-circle-fill") me-1"></span>
-                        @(_editingVersion is null ? "Save" : "Apply & Re-queue")
+                        <span class="bi @(_versionToEdit is null ? "bi-cloud-arrow-up-fill" : "bi-check-circle-fill") me-1"></span>
+                        @(_versionToEdit is null ? "Save" : "Apply & Re-queue")
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showDeleteModal && _versionToDelete is not null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);" role="dialog">
+        <div class="modal-dialog modal-dialog-centered" role="document">
+            <div class="modal-content border-0 shadow-lg">
+                <div class="modal-header bg-danger-subtle text-danger-emphasis">
+                    <h5 class="modal-title fw-bold d-flex align-items-center gap-2">
+                        <span class="bi bi-exclamation-triangle-fill"></span> Delete version
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="CancelDelete" aria-label="Close"></button>
+                </div>
+
+                <div class="modal-body py-4">
+                    <p class="mb-2">Are you sure you want to delete this version?</p>
+                    <div class="p-3 bg-light rounded border font-monospace small text-truncate text-dark fw-bold">
+                        #@_versionToDelete.Id.ToString()[..8]
+                    </div>
+                    <p class="text-danger small mt-3 mb-0 fw-semibold">
+                        <span class="bi bi-info-circle-fill"></span> This will flag the version for background cleanup.
+                    </p>
+                </div>
+
+                <div class="modal-footer bg-light border-0">
+                    <button type="button" class="btn btn-outline-secondary fw-semibold px-4" @onclick="CancelDelete">
+                        Cancel
+                    </button>
+                    <button type="button" class="btn btn-danger fw-semibold px-4 d-flex align-items-center gap-2" @onclick="ConfirmDelete">
+                        <span class="bi bi-trash3-fill"></span> Delete
                     </button>
                 </div>
             </div>
@@ -192,9 +229,11 @@
 
     private IBrowserFile? _selectedBrowserFile = null;
     private string? _fileValidationError = null;
+    
     private bool _showUploadModal = false;
-
-    private DocumentVersion? _editingVersion = null;
+    private bool _showDeleteModal = false;
+    private DocumentVersion? _versionToEdit = null;
+    private DocumentVersion? _versionToDelete = null;
 
     protected override async Task OnInitializedAsync()
     {
@@ -205,29 +244,39 @@
         }
     }
 
-    private void CloseUploadModal()
+    private void CancelDelete()
     {
-        _showUploadModal = false;
-        _editingVersion = null;
-        _fileValidationError = null;
-        _selectedBrowserFile = null;
+        _showDeleteModal = false;
+        _versionToDelete = null;
     }
 
-    private async Task Delete(Guid versionId)
+    private async Task ConfirmDelete()
     {
+        if (_versionToDelete is null) return;
+
+        var now = TimeProvider.GetUtcNow().DateTime;
         using var context = await DbContextFactory.CreateDbContextAsync();
-        var version = await context.DocumentVersions.FindAsync(versionId);
+        var version = await context.DocumentVersions.FindAsync(_versionToDelete.Id);
 
         if (version is not null)
         {
-            var now = DateTime.UtcNow;
             version.IsDeleted = true;
-            version.UpdatedAt = now;
             version.SyncStatus = SyncStatus.PendingDelete;
+            version.UpdatedAt = now;
             await context.SaveChangesAsync();
         }
 
-        await LoadVersions();
+        _showDeleteModal = false;
+        _versionToDelete = null;
+         await LoadVersions();
+    }
+
+    private void EditRejectedVersion(DocumentVersion version)
+    {
+        _versionToEdit = version;
+        _selectedBrowserFile = null;
+        _fileValidationError = null;
+        _showUploadModal = true;
     }
 
     private async Task LoadDocument()
@@ -240,17 +289,6 @@
         }
     }
 
-    private async Task LoadVersions()
-    {
-        using var context = await DbContextFactory.CreateDbContextAsync();
-
-        _versions = await context.DocumentVersions
-            .Include(v => v.StoredFile)
-            .Where(v => v.DocumentId == DocumentId && !v.IsDeleted)
-            .OrderByDescending(v => v.CreatedAt)
-            .ToListAsync();
-    }
-
     private void OnInputFileSelected(InputFileChangeEventArgs e)
     {
         _selectedBrowserFile = e.File;
@@ -259,24 +297,23 @@
 
     private void OpenUploadModal()
     {
-        _editingVersion = null;
+        _versionToEdit = null;
         _selectedBrowserFile = null;
         _fileValidationError = null;
         _showUploadModal = true;
     }
 
-    private void EditRejectedVersion(DocumentVersion version)
+    private void PromptDelete(DocumentVersion version)
     {
-        _editingVersion = version;
-        _selectedBrowserFile = null;
-        _fileValidationError = null;
-        _showUploadModal = true;
+        _versionToDelete = version;
+        _showDeleteModal = true;
     }
 
     private async Task Save()
     {
         if (_selectedBrowserFile is null || !string.IsNullOrWhiteSpace(_fileValidationError)) return;
 
+        var now = TimeProvider.GetUtcNow().DateTime;
         using var context = await DbContextFactory.CreateDbContextAsync();
 
         var document = await context.Documents.FindAsync(DocumentId);
@@ -286,7 +323,7 @@
             return;
         }
 
-        if (_editingVersion is null)
+        if (_versionToEdit is null)
         {
             var (newVersion, error) = await _selectedBrowserFile.ComputeAndCreateVersion(
                 context.DocumentVersions,
@@ -298,19 +335,20 @@
                 return;
             }
 
+            newVersion.CreatedAt = now;
+            newVersion.UpdatedAt = now;
             context.DocumentVersions.Add(newVersion);
         }
         else
         {
-            var dbRecord = await context.DocumentVersions
+            var version = await context.DocumentVersions
                 .Include(v => v.StoredFile)
-                .FirstOrDefaultAsync(v => v.Id == _editingVersion.Id);
-
-            if (dbRecord is null) return;
+                .FirstOrDefaultAsync(v => v.Id == _versionToEdit.Id);
+            if (version is null) return;
 
             var error = await _selectedBrowserFile.ComputeAndUpdateVersion(
                 context.DocumentVersions,
-                dbRecord);
+                version);
 
             if (!string.IsNullOrWhiteSpace(error))
             {
@@ -318,11 +356,31 @@
                 return;
             }
 
-            context.DocumentVersions.Update(dbRecord);
+
+            version.UpdatedAt = now;
         }
 
         await context.SaveChangesAsync();
         CloseUploadModal();
         await LoadVersions();
+    }
+
+    private void CloseUploadModal()
+    {
+        _showUploadModal = false;
+        _versionToEdit = null;
+        _fileValidationError = null;
+        _selectedBrowserFile = null;
+    }
+
+    private async Task LoadVersions()
+    {
+        using var context = await DbContextFactory.CreateDbContextAsync();
+
+        _versions = await context.DocumentVersions
+            .Include(v => v.StoredFile)
+            .Where(v => v.DocumentId == DocumentId && !v.IsDeleted)
+            .OrderByDescending(v => v.CreatedAt)
+            .ToListAsync();
     }
 }

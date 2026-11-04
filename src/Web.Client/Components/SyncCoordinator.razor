@@ -6,6 +6,7 @@
 @using Api.Contracts
 @using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.EntityFrameworkCore
+@using SqliteWasmHelper
 @using Web.Client.Data
 @using Web.Client.Extensions
 @using Web.Client.Models;
@@ -17,7 +18,7 @@
 @inject AuthenticationStateProvider AuthStateProvider
 @inject ILogger<SyncCoordinator> Logger
 @inject NavigationManager Nav
-@inject IDbContextFactory<ApplicationDbContext> DbContextFactory
+@inject ISqliteWasmDbContextFactory<ApplicationDbContext> DbContextFactory
 
 @implements IDisposable
 

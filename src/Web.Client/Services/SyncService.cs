@@ -90,7 +90,7 @@ public class SyncService(
                     x.StoredFile!.ServerFileId!.Value,
                     x.StoredFile.Type,
                     new DateTimeOffset(x.CreatedAt)))
-                .ToList();
+                .ToList(); 
 
             return apiClient.CreateDocumentVersions(
                 new CreateDocumentVersionRequest(requestItems),
@@ -127,7 +127,10 @@ public class SyncService(
                 IsDeleted = dc.IsDeleted,
                 SyncStatus = SyncStatus.Synced
             },
-            cancellationToken);
+
+            cancellationToken,
+
+            nameSelector: d => d.Name);
 
     public Task FetchDocumentCategoryDeltas(CancellationToken cancellationToken = default)
         => FetchDeltas(
@@ -156,7 +159,10 @@ public class SyncService(
                 IsDeleted = dc.IsDeleted,
                 SyncStatus = SyncStatus.Synced
             },
-            cancellationToken);
+
+            cancellationToken,
+
+            nameSelector: dc => dc.Name);
 
     public Task FetchDocumentVersionDeltas(CancellationToken cancellationToken = default)
         => FetchDeltas(
@@ -557,44 +563,31 @@ public class SyncService(
                 .ToList();
 
             using var context = await dbFactory.CreateDbContextAsync();
-            using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-
-            try
+            if (idsToUpdate.Count > 0)
             {
-                // Align with the server's latest changes
-                if (idsToUpdate.Count > 0)
+                var clientMap = await context.Tickets
+                    .Where(t => idsToUpdate.Contains(t.Id))
+                    .ToDictionaryAsync(t => t.Id, cancellationToken);
+
+                foreach (var conflict in conflicts.Where(c => idsToUpdate.Contains(c.Server.Id)))
                 {
-                    var clientMap = await context.Tickets
-                        .Where(t => idsToUpdate.Contains(t.Id))
-                        .ToDictionaryAsync(t => t.Id, cancellationToken);
+                    var serverTicket = conflict.Server;
 
-                    foreach (var conflict in conflicts.Where(c => idsToUpdate.Contains(c.Server.Id)))
+                    if (clientMap.TryGetValue(serverTicket.Id, out var client))
                     {
-                        var serverTicket = conflict.Server;
-
-                        if (clientMap.TryGetValue(serverTicket.Id, out var client))
-                        {
-                            client.Description = serverTicket.Description;
-                            client.Priority = serverTicket.Priority;
-                            client.Status = serverTicket.Status;
-                            client.Title = serverTicket.Title;
-                            client.CreatedAt = serverTicket.CreatedAt;
-                            client.UpdatedAt = serverTicket.UpdatedAt;
-                            client.ConcurrencyStamp = serverTicket.ConcurrencyStamp;
-                            client.IsDeleted = serverTicket.IsDeleted;
-                            client.SyncStatus = SyncStatus.Synced;
-                        }
+                        client.Description = serverTicket.Description;
+                        client.Priority = serverTicket.Priority;
+                        client.Status = serverTicket.Status;
+                        client.Title = serverTicket.Title;
+                        client.CreatedAt = serverTicket.CreatedAt;
+                        client.UpdatedAt = serverTicket.UpdatedAt;
+                        client.ConcurrencyStamp = serverTicket.ConcurrencyStamp;
+                        client.IsDeleted = serverTicket.IsDeleted;
+                        client.SyncStatus = SyncStatus.Synced;
                     }
-
-                    await context.SaveChangesAsync(cancellationToken);
                 }
 
-                await transaction.CommitAsync(cancellationToken);
-            }
-            catch
-            {
-                await transaction.RollbackAsync(cancellationToken);
-                throw;
+                await context.SaveChangesAsync(cancellationToken);
             }
 
             // Filter out both sets so the user doesn't have to deal with them in the UI
@@ -635,6 +628,7 @@ public class SyncService(
             using var checkContext = await dbFactory.CreateDbContextAsync();
 
             var existingBatch = await checkContext.SyncBatches
+                .AsNoTracking()
                 .FirstOrDefaultAsync(x => x.Id == batchId.Value
                                           && x.EntityTypeName == entityTypeName
                                           && x.Type == SyncType.Create,
@@ -678,69 +672,73 @@ public class SyncService(
             cancellationToken);
 
         using var context = await dbFactory.CreateDbContextAsync();
-        using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
 
-        try
+        if (response.StatusCode == System.Net.HttpStatusCode.BadRequest)
         {
-            if (response.StatusCode == System.Net.HttpStatusCode.BadRequest)
+            var problemDetails = await response.Content.ReadFromJsonAsync<ApiValidationProblemDetails>(cancellationToken);
+            int totalMappedItemErrors = 0;
+
+            if (problemDetails?.Errors is not null)
             {
-                var problemDetails = await response.Content.ReadFromJsonAsync<ApiValidationProblemDetails>(cancellationToken);
-                int totalMappedItemErrors = 0;
-
-                if (problemDetails?.Errors is not null)
+                for (int i = 0; i < pendingItems.Count; i++)
                 {
-                    for (int i = 0; i < pendingItems.Count; i++)
-                    {
-                        var prefix = $"{nameof(CreateDocumentVersionRequest.Items)}[{i}].";
-                        var indexErrors = problemDetails.Errors
-                            .Where(kvp => kvp.Key.StartsWith(prefix))
-                            .ToDictionary(
-                                kvp => kvp.Key.Replace(prefix, ""),
-                                kvp => kvp.Value
-                            );
+                    var prefix = $"{nameof(CreateDocumentVersionRequest.Items)}[{i}].";
+                    var indexErrors = problemDetails.Errors
+                        .Where(kvp => kvp.Key.StartsWith(prefix))
+                        .ToDictionary(
+                            kvp => kvp.Key.Replace(prefix, ""),
+                            kvp => kvp.Value
+                        );
 
-                        if (indexErrors.Count > 0)
-                        {
-                            totalMappedItemErrors += indexErrors.Count;
-                            var targetEntity = context.Set<TEntity>().Attach(pendingItems[i]).Entity;
-                            targetEntity.SerializedErrors = JsonSerializer.Serialize(indexErrors);
-                        }
+                    if (indexErrors.Count > 0)
+                    {
+                        totalMappedItemErrors += indexErrors.Count;
+                        // Attach to the tracker and update the serialized errors property in-memory
+                        var targetEntity = context.Set<TEntity>().Attach(pendingItems[i]).Entity;
+                        targetEntity.SerializedErrors = JsonSerializer.Serialize(indexErrors);
                     }
                 }
-
-                if (totalMappedItemErrors == 0)
-                {
-                    response.EnsureSuccessStatusCode();
-                }
             }
-            else
+
+            if (totalMappedItemErrors == 0)
             {
                 response.EnsureSuccessStatusCode();
+            }
+        }
+        else
+        {
+            response.EnsureSuccessStatusCode();
 
-                var itemIds = pendingItems.Select(x => x.Id).ToList();
-                var fileIds = pendingItems.Select(x => x.StoredFileId).ToList();
+            var itemIds = pendingItems.Select(x => x.Id).ToList();
+            var fileIds = pendingItems.Select(x => x.StoredFileId).ToList();
 
-                await context.Set<TEntity>()
-                    .Where(x => itemIds.Contains(x.Id))
-                    .ExecuteUpdateAsync(s => s.SetProperty(b => b.SyncStatus, SyncStatus.Synced), cancellationToken);
+            var itemsToUpdate = await context.Set<TEntity>()
+                .Where(x => itemIds.Contains(x.Id))
+                .ToListAsync(cancellationToken);
 
-                await context.StoredFiles
-                    .Where(x => fileIds.Contains(x.Id))
-                    .ExecuteDeleteAsync(cancellationToken);
+            foreach (var item in itemsToUpdate)
+            {
+                item.SyncStatus = SyncStatus.Synced;
             }
 
-            await context.SyncBatches
-                .Where(b => b.Id == activeBatchId)
-                .ExecuteDeleteAsync(cancellationToken);
+            var filesToDelete = await context.StoredFiles
+                .Where(x => fileIds.Contains(x.Id))
+                .ToListAsync(cancellationToken);
 
-            await context.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
+            if (filesToDelete.Count > 0)
+            {
+                context.StoredFiles.RemoveRange(filesToDelete);
+            }
         }
-        catch
+
+        var batchToDelete = await context.SyncBatches
+            .FirstOrDefaultAsync(b => b.Id == activeBatchId, cancellationToken);
+        if (batchToDelete is not null)
         {
-            await transaction.RollbackAsync(cancellationToken);
-            throw;
+            context.SyncBatches.Remove(batchToDelete);
         }
+
+        await context.SaveChangesAsync(cancellationToken);
 
         return pendingItems.Count >= Api.Contracts.Constants.MaxLengthOfList;
     }
@@ -750,7 +748,8 @@ public class SyncService(
         Func<ApplicationDbContext, DbSet<TEntity>> dbSetSelector,
         Action<TEntity, TSyncableModel> updateAction,
         Func<TSyncableModel, TEntity> createFunc,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<TEntity, string>? nameSelector = null)
         where TEntity : class, ISyncableEntity
         where TSyncableModel : class, ISyncableModel
     {
@@ -763,16 +762,18 @@ public class SyncService(
         while (hasMore)
         {
             string? nextCursorToken = null;
-            using var readContext = await dbFactory.CreateDbContextAsync();
-            var syncMetadata = await (isAdmin
-                ? readContext.SyncMetadatas.Where(s => s.UserId == null)
-               : readContext.SyncMetadatas.Where(s => s.UserId == userId))
-               .FirstOrDefaultAsync(x => x.EntityTypeName == entityTypeName, cancellationToken);
-            nextCursorToken = syncMetadata?.Cursor;
+            using (var readContext = await dbFactory.CreateDbContextAsync())
+            {
+                var syncMetadata = await (isAdmin
+                    ? readContext.SyncMetadatas.AsNoTracking().Where(s => s.UserId == null)
+                    : readContext.SyncMetadatas.AsNoTracking().Where(s => s.UserId == userId))
+                   .FirstOrDefaultAsync(x => x.EntityTypeName == entityTypeName, cancellationToken);
+                nextCursorToken = syncMetadata?.Cursor;
+            }
 
             using var response = await apiCall(nextCursorToken, cancellationToken);
             response.EnsureSuccessStatusCode();
-          
+
             var result = await response.Content
                 .ReadFromJsonAsync<DeltaResponse<TSyncableModel>>(cancellationToken);
             if (result is null || result.Items.Count == 0)
@@ -781,76 +782,92 @@ public class SyncService(
                 break;
             }
 
+            var deltaIds = result.Items.Select(d => d.Id).ToList();
+
             using var writeContext = await dbFactory.CreateDbContextAsync();
-            using var transaction = await writeContext.Database.BeginTransactionAsync(cancellationToken);
+            var dbSet = dbSetSelector(writeContext);
 
-            try
+            var clientRecords = await dbSet
+                .IgnoreQueryFilters()
+                .Where(x => deltaIds.Contains(x.Id))
+                .ToDictionaryAsync(x => x.Id, cancellationToken);
+
+            // Pre-fetch all local PendingInsert entities for this type if name selection is active
+            // This stops SQLite WASM from executing multiple sub-queries inside the foreach loop
+            List<TEntity> localPendingInserts = new();
+            if (nameSelector is not null)
             {
-                var deltaIds = result.Items.Select(d => d.Id).ToList();
-                var dbSet = dbSetSelector(writeContext);
-
-                var clientRecords = await dbSet
+                localPendingInserts = await dbSet
                     .IgnoreQueryFilters()
-                    .Where(x => deltaIds.Contains(x.Id))
-                    .ToDictionaryAsync(x => x.Id, cancellationToken);
-
-                foreach (var item in result.Items)
-                {
-                    if (clientRecords.TryGetValue(item.Id, out var clientRecord))
-                    {
-                        if (clientRecord.SyncStatus == SyncStatus.PendingUpdate) { continue; } // Protect offline edits
-
-                        if (item.IsDeleted)
-                        {
-                            dbSet.Remove(clientRecord);
-                            continue;
-                        }
-
-                        updateAction(clientRecord, item);
-                        dbSet.Update(clientRecord);
-                    }
-                    else
-                    {
-                        if (item.IsDeleted) { continue; }
-
-                        var newRecord = createFunc(item);
-                        dbSet.Add(newRecord);
-                    }
-                }
-
-                var metadata = await (isAdmin
-                    ? readContext.SyncMetadatas.Where(s => s.UserId == null)
-                    : readContext.SyncMetadatas.Where(s => s.UserId == userId))
-                    .FirstOrDefaultAsync(x => x.EntityTypeName == entityTypeName, cancellationToken);
-                if (metadata is null)
-                {
-                    metadata = new SyncMetadata 
-                    { 
-                        Id = Guid.NewGuid(),
-                        EntityTypeName = entityTypeName,
-                        UserId = isAdmin ? null : userId
-                    };
-                    writeContext.SyncMetadatas.Add(metadata);
-                }
-
-                metadata.Cursor = result.Next;
-
-                // Use the server's timestamp
-                metadata.LastSyncedAt = result.Until.DateTime; 
-
-                if (string.IsNullOrWhiteSpace(result.Next))
-                {
-                    hasMore = false;
-                }
-
-                await writeContext.SaveChangesAsync(cancellationToken);
-                await transaction.CommitAsync(cancellationToken);
+                    .Where(x => x.SyncStatus == SyncStatus.PendingInsert)
+                    .ToListAsync(cancellationToken);
             }
-            catch
+
+            foreach (var item in result.Items)
             {
-                transaction.Rollback();
-                throw;
+                if (clientRecords.TryGetValue(item.Id, out var clientRecord))
+                {
+                    if (clientRecord.SyncStatus == SyncStatus.PendingUpdate) { continue; }
+
+                    if (item.IsDeleted)
+                    {
+                        clientRecord.IsDeleted = true;
+                        clientRecord.SyncStatus = SyncStatus.Synced;
+                        dbSet.Update(clientRecord);
+                        continue;
+                    }
+
+                    updateAction(clientRecord, item);
+                    dbSet.Update(clientRecord);
+                }
+                else
+                {
+                    if (item.IsDeleted) { continue; }
+
+                    var newRecord = createFunc(item);
+
+                    if (nameSelector is not null)
+                    {
+                        var newRecordName = nameSelector(newRecord);
+
+                        // Check if an unsynced offline insert already claims this exact name case-insensitively
+                        bool nameConflictExists = localPendingInserts.Any(x =>
+                            string.Equals(nameSelector(x)?.Trim(), newRecordName?.Trim(), StringComparison.OrdinalIgnoreCase));
+                        if (nameConflictExists)
+                        {
+                            continue; // Skip adding the server record for now
+                        }
+                    }
+
+                    dbSet.Add(newRecord);
+                }
             }
+
+            var metadata = await (isAdmin
+                ? writeContext.SyncMetadatas.Where(s => s.UserId == null)
+                : writeContext.SyncMetadatas.Where(s => s.UserId == userId))
+                .FirstOrDefaultAsync(x => x.EntityTypeName == entityTypeName, cancellationToken);
+            if (metadata is null)
+            {
+                metadata = new SyncMetadata
+                {
+                    Id = Guid.NewGuid(),
+                    EntityTypeName = entityTypeName,
+                    UserId = isAdmin ? null : userId
+                };
+                writeContext.SyncMetadatas.Add(metadata);
+                logger.LogInformation("Added new metadata");
+            }
+
+            metadata.Cursor = result.Next;
+            metadata.LastSyncedAt = result.Until.DateTime;
+
+            if (string.IsNullOrWhiteSpace(result.Next))
+            {
+                hasMore = false;
+            }
+
+            await writeContext.SaveChangesAsync(cancellationToken);
         }
     }
 
@@ -885,29 +902,26 @@ public class SyncService(
             .ToList();
 
         using var context = await dbFactory.CreateDbContextAsync();
-        // Open an explicit transaction to ensure atomic updates and deletions
-        using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-        
-        try
+
+        if (successfulIds.Count > 0)
         {
-            if (successfulIds.Count > 0)
+            var recordsToUpdate = await dbSetSelector(context)
+                .Where(x => successfulIds.Contains(x.Id))
+                .ToListAsync(cancellationToken);
+            foreach (var record in recordsToUpdate)
             {
-                await dbSetSelector(context)
-                    .Where(x => successfulIds.Contains(x.Id))
-                    .ExecuteUpdateAsync(s => s.SetProperty(x => x.SyncStatus, SyncStatus.Synced), cancellationToken);
+                record.SyncStatus = SyncStatus.Synced;
             }
-
-            await context.SyncBatches
-                .Where(b => b.Id == batchId)
-                .ExecuteDeleteAsync(cancellationToken);
-
-            await transaction.CommitAsync(cancellationToken);
         }
-        catch
+
+        var batchToDelete = await context.SyncBatches
+            .FirstOrDefaultAsync(b => b.Id == batchId, cancellationToken);
+        if (batchToDelete is not null)
         {
-            await transaction.RollbackAsync(cancellationToken);
-            throw;
+            context.SyncBatches.Remove(batchToDelete);
         }
+
+        await context.SaveChangesAsync(cancellationToken);
 
         var clientMap = entities
             .Where(e => conflictedIds.Contains(e.Id))
@@ -944,6 +958,7 @@ public class SyncService(
             using var checkContext = await dbFactory.CreateDbContextAsync();
 
             var existingBatch = await checkContext.SyncBatches
+                .AsNoTracking()
                 .FirstOrDefaultAsync(x => x.Id == batchId.Value
                                           && x.EntityTypeName == entityTypeName
                                           && x.Type == SyncType.UploadFiles,
@@ -1018,37 +1033,30 @@ public class SyncService(
         await Task.WhenAll(uploadTasks);
 
         using var context = await dbFactory.CreateDbContextAsync();
-        using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
 
-        try
+        if (updatesMap.Count > 0)
         {
-            if (updatesMap.Count > 0)
-            {
-                var filesToUpdate = await context.StoredFiles
-                    .Where(f => updatesMap.Keys.Contains(f.Id))
-                    .ToListAsync(cancellationToken);
+            var filesToUpdate = await context.StoredFiles
+                .Where(f => updatesMap.Keys.Contains(f.Id))
+                .ToListAsync(cancellationToken);
 
-                foreach (var file in filesToUpdate)
+            foreach (var file in filesToUpdate)
+            {
+                if (updatesMap.TryGetValue(file.Id, out var serverId))
                 {
-                    if (updatesMap.TryGetValue(file.Id, out var ServerId))
-                    {
-                        file.ServerFileId = ServerId;
-                    }
+                    file.ServerFileId = serverId;
                 }
             }
-
-            await context.SyncBatches
-                .Where(b => b.Id == activeBatchId)
-                .ExecuteDeleteAsync(cancellationToken);
-
-            await context.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
         }
-        catch
+
+        var batchToDelete = await context.SyncBatches
+            .FirstOrDefaultAsync(b => b.Id == activeBatchId, cancellationToken);
+        if (batchToDelete is not null)
         {
-            await transaction.RollbackAsync(cancellationToken);
-            throw;
+            context.SyncBatches.Remove(batchToDelete);
         }
+
+        await context.SaveChangesAsync(cancellationToken);
 
         return pendingItems.Count >= Api.Contracts.Constants.MaxLengthOfList;
     }

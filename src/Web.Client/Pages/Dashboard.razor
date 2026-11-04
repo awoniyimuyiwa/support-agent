@@ -6,10 +6,12 @@
 @using Domain.Shared
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.EntityFrameworkCore
+@using SqliteWasmHelper
 @using Web.Client.Components
 @using Web.Client.Data
 @using Web.Client.Extensions
-@inject IDbContextFactory<ApplicationDbContext> DbFactory
+
+@inject ISqliteWasmDbContextFactory<ApplicationDbContext> DbFactory
 
 <CustomPageTitle Value="Dashboard" />
 
@@ -151,14 +153,6 @@
         {
             await LoadStats();
             _isLoading = false;
-            // Note: No StateHasChanged() is needed here! Blazor automatically
-            // re-renders when OnInitializedAsync finishes.
-        }
-        else
-        {
-            // On the server prerender, stop loading immediately
-            // so it sends down a clean, empty dashboard frame
-            _isLoading = false;
         }
     }
 
@@ -171,21 +165,13 @@
 
         await LoadStats();
 
-        if (OperatingSystem.IsBrowser())
-        {
-            await Task.Delay(300); // Visual buffer for action confirmation
-            _isLoading = false;
-            _refreshingClass = "";
-        }
+        await Task.Delay(300); // Visual buffer for action confirmation   
+        _isLoading = false;
+        _refreshingClass = "";
     }
 
     private async Task LoadStats()
     { 
-        if (!OperatingSystem.IsBrowser())
-        {
-            return;
-        }
-
         var authState = AuthStateTask.Result;
         var userId = authState.User.Id;
        

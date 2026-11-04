@@ -7,13 +7,15 @@
 @using Domain.Shared
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.EntityFrameworkCore
+@using SqliteWasmHelper
 @using Web.Client.Components
 @using Web.Client.Data
 @using Web.Client.Extensions
 @using Web.Client.Models
 
-@inject IDbContextFactory<ApplicationDbContext> DbContextFactory
+@inject ISqliteWasmDbContextFactory<ApplicationDbContext> DbContextFactory
 @inject ILogger<Documents> Logger
+@inject TimeProvider TimeProvider
 @implements IDisposable
 
 <CustomPageTitle Value="Documents" />
@@ -178,7 +180,6 @@
                 OnPageChanged="ApplyFilter" />
 </div>
 
-<!-- Upload Document + Version Modal Box -->
 @if (_showUploadModal)
 {
     <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0, 0, 0, 0.5);" role="dialog">
@@ -245,7 +246,6 @@
     </div>
 }
 
-<!-- Delete Confirmation -->
 @if (_showDeleteModal && _docToDelete is not null)
 {
     <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);" role="dialog">
@@ -259,12 +259,12 @@
                 </div>
 
                 <div class="modal-body py-4">
-                    <p class="mb-2">Are you sure you want to delete this document? This will soft-delete all attached versions.</p>
+                    <p class="mb-2">Are you sure you want to delete this document?</p>
                     <div class="p-3 bg-light rounded border font-monospace small text-truncate text-dark fw-bold">
                         @_docToDelete.Name
                     </div>
                     <p class="text-danger small mt-3 mb-0 fw-semibold">
-                        <span class="bi bi-info-circle-fill"></span> This will flag the document for background cleanup.
+                        <span class="bi bi-info-circle-fill"></span> This will flag the document and its versions for background cleanup.
                     </p>
                 </div>
 
@@ -326,29 +326,15 @@
         _showDeleteModal = false;
         _docToDelete = null;
     }
- 
-    private void CloseCreateModal()
-    {
-        if (_editContext is not null)
-        {
-            _editContext.OnFieldChanged -= HandleFieldChanged;
-        }
-
-        _showUploadModal = false;
-        _documentEditedId = null;
-        _fileValidationError = null;
-        _selectedBrowserFile = null;
-        _editContext = null;
-        _messageStore = null;
-    }
 
     private async Task ConfirmDelete()
     {
         if (_docToDelete is null) return;
 
+        var now = TimeProvider.GetUtcNow().DateTime;
         using var context = await DbContextFactory.CreateDbContextAsync();
-        var now = DateTime.UtcNow;
         var doc = await context.Documents.FindAsync(_docToDelete.Id);
+
         if (doc is not null)
         {
             doc.IsDeleted = true;
@@ -364,7 +350,7 @@
             }
             await context.SaveChangesAsync();
         }
-            
+
         _showDeleteModal = false;    
         _docToDelete = null;
         await ApplyFilter();
@@ -474,8 +460,23 @@
     {
         if (_editContext is null || !_editContext.Validate()) return;
 
-        using var context = await DbContextFactory.CreateDbContextAsync();
-        var now = DateTime.UtcNow;
+        using var context = await DbContextFactory.CreateDbContextAsync(); 
+
+        var nameExists = await context.Documents
+            .AnyAsync(d => d.Name == _inputModel.Name
+                        && !d.IsDeleted
+                        && d.Id != _documentEditedId);
+        if (nameExists)
+        {
+            // Attach the custom validation error to the EditContext
+            var fieldIdentifier = new FieldIdentifier(_inputModel, nameof(_inputModel.Name));
+            _messageStore!.Clear(fieldIdentifier);
+            _messageStore!.Add(fieldIdentifier, "A document with this name already exists.");
+            _editContext.NotifyValidationStateChanged();
+            return;
+        }
+
+        var now = TimeProvider.GetUtcNow().DateTime;
 
         if (_documentEditedId.HasValue)
         {
@@ -486,12 +487,10 @@
                 existingDoc.Name = _inputModel.Name.Trim();
                 existingDoc.DocumentCategoryId = Guid.Parse(_inputModel.DocumentCategoryId);
                 existingDoc.UpdatedAt = now;
-                
+
                 // Clear rejection parameters to re-queue back into execution synchronization loops
                 existingDoc.SerializedErrors = null;
                 existingDoc.SyncStatus = SyncStatus.PendingUpdate;
-
-                context.Documents.Update(existingDoc);
             }
         }
         else
@@ -510,13 +509,15 @@
                 return;
             }
 
+            version.CreatedAt = now;
+            version.UpdatedAt = now;
             var document = new Document
             {
                 Id = documentId,
                 Name = _inputModel.Name.Trim(),
                 DocumentCategoryId = Guid.Parse(_inputModel.DocumentCategoryId),
-                CreatedAt = version.CreatedAt,
-                UpdatedAt = version.UpdatedAt,
+                CreatedAt = now,
+                UpdatedAt = now,
                 IsDeleted = false,
                 SyncStatus = SyncStatus.PendingInsert
             };
@@ -542,8 +543,8 @@
         using var context = await DbContextFactory.CreateDbContextAsync();
 
         IQueryable<Document> query = context.Documents
-        .Include(d => d.DocumentCategory)
-        .Where(d => !d.IsDeleted);
+            .Include(d => d.DocumentCategory)
+            .Where(d => !d.IsDeleted);
 
         if (!string.IsNullOrWhiteSpace(_filter.SearchTerm))
         {
@@ -554,26 +555,41 @@
         if (_filter.CategoryIdFilter.HasValue) query = query.Where(d => d.DocumentCategoryId == _filter.CategoryIdFilter.Value);
         if (_filter.SyncStatusFilter.HasValue) query = query.Where(d => d.SyncStatus == _filter.SyncStatusFilter.Value);
 
+        query = _filter.SortDescending ? query.OrderByDescending(d => d.CreatedAt) : query.OrderBy(d => d.CreatedAt);
+        
         _totalCount = await query.CountAsync();
-        query = _filter.SortDescending ? 
-        query.OrderByDescending(d => d.CreatedAt) : query.OrderBy(d => d.CreatedAt);
-
-        _documents = await query.Skip((_filter.PageNumber - 1) * _filter.PageSize)
-        .Take(_filter.PageSize)
-        .ToListAsync();
+        _documents = await query
+            .Skip((_filter.PageNumber - 1) * _filter.PageSize)
+            .Take(_filter.PageSize)
+            .ToListAsync();
 
         // Cache version hash descriptors map mapping profiles cleanly
-        var docIds = _documents.Select(d => d.Id)
-        .ToList();
+        var docIds = _documents
+            .Select(d => d.Id)
+            .ToList();
 
         _latestVersionMap = await context.DocumentVersions
-        .Where(v => docIds.Contains(v.DocumentId) && !v.IsDeleted)
-        .GroupBy(v => v.DocumentId)
-        .ToDictionaryAsync(
-            g => g.Key,
-            g => g.OrderByDescending(v => v.CreatedAt).Select(v => v.ContentHash).FirstOrDefault() ?? string.Empty
-        );
+            .Where(v => docIds.Contains(v.DocumentId) && !v.IsDeleted)
+            .GroupBy(v => v.DocumentId)
+            .ToDictionaryAsync(
+                g => g.Key,
+                g => g.OrderByDescending(v => v.CreatedAt).Select(v => v.ContentHash).FirstOrDefault() ?? string.Empty);
 
         StateHasChanged();
+    }
+
+    private void CloseCreateModal()
+    {
+        if (_editContext is not null)
+        {
+            _editContext.OnFieldChanged -= HandleFieldChanged;
+        }
+
+        _showUploadModal = false;
+        _documentEditedId = null;
+        _fileValidationError = null;
+        _selectedBrowserFile = null;
+        _editContext = null;
+        _messageStore = null;
     }
 }
