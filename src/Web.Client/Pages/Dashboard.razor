@@ -10,8 +10,10 @@
 @using Web.Client.Components
 @using Web.Client.Data
 @using Web.Client.Extensions
+@using Web.Client.Services
 
 @inject ISqliteWasmDbContextFactory<ApplicationDbContext> DbFactory
+@inject SyncStateProvider SyncState
 
 <CustomPageTitle Value="Dashboard" />
 
@@ -144,6 +146,11 @@
     private string _refreshingClass = "";
     private bool _isLoading = true;
 
+    public void Dispose()
+    {
+        SyncState.OnSyncCompleted -= HandleSyncCompleted;
+    }
+
     protected override async Task OnInitializedAsync()
     {
         var authState = await AuthStateTask;
@@ -152,8 +159,16 @@
         if (OperatingSystem.IsBrowser())
         {
             await LoadStats();
+            SyncState.OnSyncCompleted += HandleSyncCompleted;
             _isLoading = false;
         }
+    }
+
+    private async Task HandleSyncCompleted()
+    {
+        await RefreshStats();
+
+        await InvokeAsync(StateHasChanged);
     }
 
     private async Task RefreshStats()

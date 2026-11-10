@@ -1,14 +1,15 @@
-using Domain.Shared;
 using System.ComponentModel.DataAnnotations;
 
 namespace Web.Client.Models;
 
 public class DocumentCategoryModel
 {
-    [StringLength(Constants.StringMaxLength)]
+    [StringLength(Domain.Shared.Constants.StringMaxLength)]
     public string? Description { get; set; } = string.Empty;
 
     [Required]
-    [StringLength(Constants.StringMaxLength)]
+    [StringLength(Domain.Shared.Constants.StringMaxLength)]
     public string Name { get; set; } = string.Empty;
+
+    public string? ConcurrencyStamp { get; set; }
 }

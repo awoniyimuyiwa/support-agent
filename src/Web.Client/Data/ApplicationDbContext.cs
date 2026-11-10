@@ -26,7 +26,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
         modelBuilder.Entity<Document>(b =>
         {
             b.Property(d => d.Name)
-           .HasMaxLength(Constants.StringMaxLength)
+           .HasMaxLength(Domain.Shared.Constants.StringMaxLength)
            .HasAnnotation("Relational:Collation", "NOCASE")
            .IsRequired();
 
@@ -43,12 +43,12 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
         modelBuilder.Entity<DocumentCategory>(b =>
         {
             b.Property(dc => dc.Name)
-            .HasMaxLength(Constants.StringMaxLength)
+            .HasMaxLength(Domain.Shared.Constants.StringMaxLength)
             .HasAnnotation("Relational:Collation", "NOCASE")
             .IsRequired();
 
             b.Property(dc => dc.Description)
-            .HasMaxLength(Constants.StringMaxLength);
+            .HasMaxLength(Domain.Shared.Constants.StringMaxLength);
 
             b.HasIndex(dc => new { dc.Name, dc.IsDeleted }).IsUnique();
         });
@@ -95,6 +95,10 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
 
             // Create a direct performance index on the status column for ultra-fast batch slicing
             entityBuilder.HasIndex(nameof(ISyncableEntity.SyncStatus));
+
+            entityBuilder.Property(nameof(ISyncableEntity.ConcurrencyStamp))
+                .IsConcurrencyToken()
+                .HasMaxLength(Domain.Shared.Constants.StringMaxLength);
         }
     }
 }

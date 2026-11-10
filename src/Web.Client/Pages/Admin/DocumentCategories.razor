@@ -1,41 +1,35 @@
 ﻿@page "/admin/document-categories"
 @rendermode InteractiveAuto
-@attribute [Authorize(Roles = Constants.AdminRoleName)]
+@attribute [Authorize(Roles = Domain.Shared.Constants.AdminRoleName)]
 @layout MainLayout
 
-@using Domain.Shared
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.EntityFrameworkCore
 @using SqliteWasmHelper
 @using Web.Client.Components
 @using Web.Client.Data
+@using Web.Client.Extensions
 @using Web.Client.Models
+@using Web.Client.Services
 
 @inject ISqliteWasmDbContextFactory<ApplicationDbContext> DbContextFactory
 @inject ILogger<DocumentCategories> Logger
+@inject SyncStateProvider SyncState
 @inject TimeProvider TimeProvider
+
 @implements IDisposable
 
 <CustomPageTitle Value="Document Categories" />
 
 <div class="p-4 animate-fade-in">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <div class="d-flex align-items-center gap-3">
-            <div class="bg-info-subtle text-info-emphasis rounded p-2.5 d-inline-flex align-items-center justify-content-center shadow-sm">
-                <span class="bi bi-tags-fill fs-3"></span>
-            </div>
-            <div>
-                <h1 class="h3 fw-bold mb-0">Document Categories</h1>
-                <small class="text-secondary">Organize and partition files, notes, and documentation templates</small>
-            </div>
-        </div>
-        <div>
+    <PageHeader Title="Document Categories" Subtitle="Organize and partition files, notes, and documentation templates" IconClass="bi-tags-fill">
+        <ActionContent>
             <button class="btn btn-primary d-flex align-items-center gap-2 shadow-sm fw-semibold" @onclick="OpenCreateModal">
                 <span class="bi bi-plus-circle"></span>
                 <span>New Category</span>
             </button>
-        </div>
-    </div>
+        </ActionContent>
+    </PageHeader>
 
     <!-- Search, Filter & Sorting Panel Control Bar -->
     <div class="card border-0 shadow-sm p-3 mb-4 bg-light">
@@ -52,11 +46,11 @@
             <!-- Administrative Sync Status Filter Dropdown -->
             <div class="col-md-3">
                 <label class="form-label small fw-bold text-secondary text-uppercase">Sync Status</label>
-                <select class="form-select" @bind="_filter.SyncStatusFilter" @bind:after="ResetPage">
+                <select class="form-select" @bind="_filter.SyncStatus" @bind:after="ResetPage">
                     <option value="">All Sync States</option>
                     @foreach (var syncStatus in Enum.GetValues<SyncStatus>())
                     {
-                        <option value="@syncStatus">@syncStatus.ToString()</option>
+                        <option value="@syncStatus">@syncStatus.DisplayName</option>
                     }
                 </select>
             </div>
@@ -139,7 +133,7 @@
     </div>
 
     <Pagination @bind-PageNumber="_filter.PageNumber"
-                PageSize="_filter.PageSize"
+                PageSize="DocumentCategoryFilterModel.PageSize"
                 TotalCount="_totalCount"
                 OnPageChanged="ApplyFilter" />
 </div>
@@ -152,6 +146,23 @@
             <div class="modal-content border-0 shadow-lg">
                 <EditForm EditContext="@_editContext" OnValidSubmit="Save">
                     <DataAnnotationsValidator />
+
+                    @if (_editContext!.GetValidationMessages(new FieldIdentifier(_inputModel, string.Empty)).Any())
+                    {
+                        <div class="alert alert-danger d-flex align-items-start gap-2 shadow-sm border-0 mb-4 animate-fade-in" role="alert">
+                            <span class="bi bi-exclamation-triangle-fill fs-5 flex-shrink-0 mt-0.5" aria-hidden="true"></span>
+
+                            <div class="flex-grow-1">
+                                <h6 class="alert-heading fw-bold mb-1">Concurrency Conflict detected:</h6>
+                                <ul class="mb-0 ps-0 list-unstyled small text-danger">
+                                    @foreach (var message in _editContext.GetValidationMessages(new FieldIdentifier(_inputModel, string.Empty)))
+                                    {
+                                        <li>@message</li>
+                                    }
+                                </ul>
+                            </div>
+                        </div>
+                    }
 
                     <div class="modal-header bg-light">
                         <h5 class="modal-title fw-bold text-dark">
@@ -200,6 +211,17 @@
                 </div>
 
                 <div class="modal-body py-4">
+                    @if (!string.IsNullOrWhiteSpace(_deleteErrorMessage))
+                    {
+                        <div class="alert alert-danger d-flex align-items-start gap-2 shadow-sm border-0 mb-4 animate-fade-in" role="alert">
+                            <span class="bi bi-exclamation-triangle-fill fs-5 flex-shrink-0 mt-0.5" aria-hidden="true"></span>
+                            <div>
+                                <h6 class="alert-heading fw-bold mb-1">Concurrency Conflict</h6>
+                                <p class="mb-0 small">@_deleteErrorMessage</p>
+                            </div>
+                        </div>
+                    }
+
                     <p class="mb-2">Are you sure you want to delete this category?</p>
                     <div class="p-3 bg-light rounded border font-monospace small text-truncate text-dark fw-bold">
                         @_categoryToDelete.Name
@@ -213,7 +235,9 @@
                     <button type="button" class="btn btn-outline-secondary fw-semibold px-4" @onclick="CancelDelete">
                         Cancel
                     </button>
-                    <button type="button" class="btn btn-danger fw-semibold px-4 d-flex align-items-center gap-2" @onclick="ConfirmDelete">
+                    <button type="button" class="btn btn-danger fw-semibold px-4 d-flex align-items-center gap-2" 
+                            @onclick="ConfirmDelete"
+                            disabled="@(!string.IsNullOrWhiteSpace(_deleteErrorMessage))">
                         <span class="bi bi-trash3-fill"></span> Delete
                     </button>
                 </div>
@@ -226,10 +250,13 @@
     private List<DocumentCategory> _categories = [];
 
     private DocumentCategoryModel _inputModel = new();
-    private bool _showUpsertModal = false;
-    private bool _showDeleteModal = false;
-    private Guid? _categoryEditedId = null;
-    private DocumentCategory? _categoryToDelete = null;
+
+    private bool _showUpsertModal;
+    private Guid? _categoryEditedId;
+
+    private bool _showDeleteModal;
+    private DocumentCategory? _categoryToDelete;
+    private string? _deleteErrorMessage;
 
     private DocumentCategoryFilterModel _filter = new();
     private int _totalCount = 0;
@@ -244,6 +271,7 @@
         _debounceCts?.Dispose();
 
         // Unsubscribe to avoid memory leaks
+        SyncState.OnSyncCompleted -= HandleSyncCompleted;
         if (_editContext is not null)
         {
             _editContext.OnFieldChanged -= HandleFieldChanged;
@@ -255,6 +283,7 @@
         if (OperatingSystem.IsBrowser())
         {
             await ApplyFilter();
+            SyncState.OnSyncCompleted += HandleSyncCompleted;
         }
     }
 
@@ -262,6 +291,7 @@
     {
         _showDeleteModal = false;
         _categoryToDelete = null;
+        _deleteErrorMessage = null;
     }
 
     private async Task ConfirmDelete()
@@ -277,27 +307,25 @@
             category.IsDeleted = true;
             category.SyncStatus = SyncStatus.PendingDelete;
             category.UpdatedAt = now;
-            await context.SaveChangesAsync();
+            category.ConcurrencyStamp = _categoryToDelete.ConcurrencyStamp;
+
+            try
+            {
+                await context.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                _deleteErrorMessage = Web.Client.Constants.ConcurrencyErrorMessage;
+                StateHasChanged();
+                return;
+            }
         }
 
         _showDeleteModal = false;
         _categoryToDelete = null;
+        _deleteErrorMessage = null;
+        _filter.Reset();
         await ApplyFilter();
-    }
-
-    private async Task Delete(Guid id)
-    {
-        using var context = await DbContextFactory.CreateDbContextAsync();
-        var category = await context.DocumentCategories.FindAsync(id);
-
-        if (category is not null)
-        {
-            category.IsDeleted = true;
-            category.SyncStatus = SyncStatus.PendingDelete;
-            category.UpdatedAt = DateTime.UtcNow;
-            await context.SaveChangesAsync();
-            await ApplyFilter();
-        }
     }
 
     private void HandleFieldChanged(object? sender, FieldChangedEventArgs e)
@@ -309,6 +337,13 @@
 
         // Notify the UI to instantly drop the validation styling flag
         _editContext.NotifyValidationStateChanged();
+    }
+
+    private async Task HandleSyncCompleted()
+    {
+        _filter.Reset();
+        await ApplyFilter();
+        await InvokeAsync(StateHasChanged);
     }
 
     private async Task OnSearchInputDebounced(ChangeEventArgs e)
@@ -350,7 +385,8 @@
         _inputModel = new DocumentCategoryModel
         {
             Name = category.Name,
-            Description = category.Description
+            Description = category.Description,
+            ConcurrencyStamp = category.ConcurrencyStamp
         };
 
         _editContext = new EditContext(_inputModel);
@@ -384,12 +420,6 @@
         _showDeleteModal = true;
     }
 
-    private async Task ResetPage()
-    {
-        _filter.PageNumber = 1;
-        await ApplyFilter();
-    }
-
     private async Task Save()
     {
         if (_editContext is null || !_editContext.Validate()) return;
@@ -402,7 +432,6 @@
                         && dc.Id != _categoryEditedId);
         if (nameExists)
         {
-            // Attach the custom validation error to the EditContext
             var fieldIdentifier = new FieldIdentifier(_inputModel, nameof(_inputModel.Name));
             _messageStore!.Clear(fieldIdentifier);
             _messageStore!.Add(fieldIdentifier, "A category with this name already exists.");
@@ -420,13 +449,22 @@
                 existingCategory.Name = _inputModel.Name.Trim();
                 existingCategory.Description = string.IsNullOrWhiteSpace(_inputModel.Description) ? null : _inputModel.Description.Trim();
                 existingCategory.UpdatedAt = now;
-
                 existingCategory.SerializedErrors = null;
                 existingCategory.SyncStatus = SyncStatus.PendingUpdate;
+                existingCategory.ConcurrencyStamp = _inputModel.ConcurrencyStamp;
 
-                await context.SaveChangesAsync();
-                CloseUpsertModal();
-                await ApplyFilter();
+                try
+                {
+                    await context.SaveChangesAsync();
+                }
+                catch (DbUpdateConcurrencyException)
+                {
+                    var modelIdentifier = new FieldIdentifier(_inputModel, string.Empty);
+                    _messageStore!.Clear(modelIdentifier);
+                    _messageStore!.Add(modelIdentifier, Web.Client.Constants.ConcurrencyErrorMessage);
+                    _editContext.NotifyValidationStateChanged();
+                    return;
+                }
             }
         }
         else
@@ -443,10 +481,17 @@
             };
             context.DocumentCategories.Add(newCategory);
             await context.SaveChangesAsync();
-            CloseUpsertModal();
-            _filter.Reset();
-            await ApplyFilter();
         }
+
+        CloseUpsertModal();
+        _filter.Reset();
+        await ApplyFilter();
+    }
+
+    private async Task ResetPage()
+    {
+        _filter.PageNumber = 1;
+        await ApplyFilter();
     }
 
     private async Task ToggleSortDirection()
@@ -466,9 +511,9 @@
             query = query.Where(c => EF.Functions.Like(c.Name, match) || EF.Functions.Like(c.Description, match));
         }
 
-        if (_filter.SyncStatusFilter.HasValue)
+        if (_filter.SyncStatus.HasValue)
         {
-            query = query.Where(c => c.SyncStatus == _filter.SyncStatusFilter.Value);
+            query = query.Where(c => c.SyncStatus == _filter.SyncStatus.Value);
         }
 
         query = _filter.SortColumn switch
@@ -480,8 +525,8 @@
 
         _totalCount = await query.CountAsync();
         _categories = await query
-            .Skip((_filter.PageNumber - 1) * _filter.PageSize)
-            .Take(_filter.PageSize)
+            .Skip((_filter.PageNumber - 1) * DocumentCategoryFilterModel.PageSize)
+            .Take(DocumentCategoryFilterModel.PageSize)
             .ToListAsync();
 
         StateHasChanged();

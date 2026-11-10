@@ -13,12 +13,13 @@
 @using Web.Client.Services
 
 @inject ApiClient ApiClient
-@inject IJSRuntime JS
-@inject SyncService SyncService
 @inject AuthenticationStateProvider AuthStateProvider
+@inject ISqliteWasmDbContextFactory<ApplicationDbContext> DbContextFactory
+@inject IJSRuntime JS
 @inject ILogger<SyncCoordinator> Logger
 @inject NavigationManager Nav
-@inject ISqliteWasmDbContextFactory<ApplicationDbContext> DbContextFactory
+@inject SyncService SyncService
+@inject SyncStateProvider SyncState
 
 @implements IDisposable
 
@@ -442,8 +443,11 @@
                     || _showDocumentCategoryModal 
                     || _showDocumentVersionModal)
                 {
+                    await SyncState.NotifyCompleted();
                     break;
                 }
+
+                await SyncState.NotifyCompleted();
 
                 if (hasMoreData)
                 {
@@ -493,7 +497,7 @@
         await SyncService.FetchTicketDeltas(cancellationToken);
 
         // Return true if any local updates were pushed out (checks batch count bounds)
-        return ticketConflicts.Count >= Constants.MaxLengthOfList;
+        return ticketConflicts.Count >= Api.Contracts.Constants.MaxLengthOfList;
     }
 
     private async Task<bool> RunAllSync(CancellationToken cancellationToken)

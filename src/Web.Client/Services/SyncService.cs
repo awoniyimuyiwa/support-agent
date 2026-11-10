@@ -1093,7 +1093,13 @@ public class SyncService(
     {
         using var context = await dbFactory.CreateDbContextAsync();
 
-        var entities = await querySelector(context)
+        var query = querySelector(context);
+        if (type == SyncType.Sync)
+        {
+            query = query.Where(x => x.SyncStatus != SyncStatus.Synced);
+        }
+
+        var entities = await query
             .Take(Api.Contracts.Constants.MaxLengthOfList)
             .ToListAsync(cancellationToken);
 

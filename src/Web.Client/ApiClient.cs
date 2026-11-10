@@ -190,7 +190,7 @@ public class ApiClient(HttpClient httpClient)
         };
 
         request.Headers.Add(
-            Constants.IdempotencyKeyHeaderName,
+            Api.Contracts.Constants.IdempotencyKeyHeaderName,
             idempotencyKey.ToString());
 
         return httpClient.SendAsync(

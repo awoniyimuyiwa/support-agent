@@ -63,6 +63,7 @@ builder.Services.AddSqliteWasmDbContextFactory<ApplicationDbContext>(options =>
 });
 
 builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddScoped<SyncStateProvider>();
 builder.Services.AddScoped<SyncService>();
 
 var host = builder.Build();

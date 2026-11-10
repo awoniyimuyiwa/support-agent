@@ -24,4 +24,10 @@
 	<ItemGroup>
 	  <ProjectReference Include="..\Api.Contracts\Api.Contracts.csproj" />
 	</ItemGroup>
+
+	<ItemGroup>
+	  <Content Update="wwwroot\appsettings.json">
+	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+	  </Content>
+	</ItemGroup>
 </Project>

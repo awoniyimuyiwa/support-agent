@@ -9,8 +9,10 @@
 @using SqliteWasmHelper
 @using Web.Client.Components
 @using Web.Client.Data
+@using Web.Client.Services
 
 @inject ISqliteWasmDbContextFactory<ApplicationDbContext> DbFactory
+@inject SyncStateProvider SyncState
 
 <CustomPageTitle Value="Admin Dashboard" />
 
@@ -180,13 +182,26 @@
     private string _refreshingClass = "";
     private bool _isLoading = true;
 
+    public void Dispose()
+    {
+        SyncState.OnSyncCompleted -= HandleSyncCompleted;
+    }
+
     protected override async Task OnInitializedAsync()
     {
+        SyncState.OnSyncCompleted += HandleSyncCompleted;
         if (OperatingSystem.IsBrowser())
         {
             await LoadStats();
             _isLoading = false;
         }
+    }
+
+    private async Task HandleSyncCompleted()
+    {
+        await RefreshStats();
+
+        await InvokeAsync(StateHasChanged);
     }
 
     private async Task RefreshStats()

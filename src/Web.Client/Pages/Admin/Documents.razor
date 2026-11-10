@@ -1,10 +1,9 @@
 ﻿@page "/admin/documents"
 @rendermode InteractiveAuto
-@attribute [Authorize(Roles = Constants.AdminRoleName)]
+@attribute [Authorize(Roles = Domain.Shared.Constants.AdminRoleName)]
 @layout MainLayout
 
 @using System.Security.Cryptography
-@using Domain.Shared
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.EntityFrameworkCore
 @using SqliteWasmHelper
@@ -12,10 +11,13 @@
 @using Web.Client.Data
 @using Web.Client.Extensions
 @using Web.Client.Models
+@using Web.Client.Services
 
 @inject ISqliteWasmDbContextFactory<ApplicationDbContext> DbContextFactory
 @inject ILogger<Documents> Logger
+@inject SyncStateProvider SyncState
 @inject TimeProvider TimeProvider
+
 @implements IDisposable
 
 <CustomPageTitle Value="Documents" />
@@ -38,7 +40,7 @@
             </div>
             <div class="col-md-3">
                 <label class="form-label small fw-bold text-secondary text-uppercase">Category</label>
-                <select class="form-select" @bind="_filter.CategoryIdFilter" @bind:after="ResetPage">
+                <select class="form-select" @bind="_filter.CategoryId" @bind:after="ResetPage">
                     <option value="">Categories</option>
                     @foreach (var cat in _categories)
                     {
@@ -48,11 +50,11 @@
             </div>
             <div class="col-md-3">
                 <label class="form-label small fw-bold text-secondary text-uppercase">Sync Status</label>
-                <select class="form-select" @bind="_filter.SyncStatusFilter" @bind:after="ResetPage">
+                <select class="form-select" @bind="_filter.SyncStatus" @bind:after="ResetPage">
                     <option value="">Sync States</option>
-                    @foreach (var status in Enum.GetValues<SyncStatus>())
+                    @foreach (var syncStatus in Enum.GetValues<SyncStatus>())
                     {
-                        <option value="@status">@status.ToString()</option>
+                        <option value="@syncStatus">@syncStatus.DisplayName</option>
                     }
                 </select>
             </div>
@@ -175,7 +177,7 @@
     </div>
 
     <Pagination @bind-PageNumber="_filter.PageNumber"
-                PageSize="_filter.PageSize"
+                PageSize="DocumentFilterModel.PageSize"
                 TotalCount="_totalCount"
                 OnPageChanged="ApplyFilter" />
 </div>
@@ -187,13 +189,30 @@
             <div class="modal-content border-0 shadow-lg">
                 <EditForm EditContext="@_editContext" OnValidSubmit="Save">
                     <DataAnnotationsValidator />
+
+                    @if (_editContext!.GetValidationMessages(new FieldIdentifier(_inputModel, string.Empty)).Any())
+                    {
+                        <div class="alert alert-danger d-flex align-items-start gap-2 shadow-sm border-0 mb-4 animate-fade-in" role="alert">
+                            <span class="bi bi-exclamation-triangle-fill fs-5 flex-shrink-0 mt-0.5" aria-hidden="true"></span>
+
+                            <div class="flex-grow-1">
+                                <h6 class="alert-heading fw-bold mb-1">Concurrency Conflict detected:</h6>
+                                <ul class="mb-0 ps-0 list-unstyled small text-danger">
+                                    @foreach (var message in _editContext.GetValidationMessages(new FieldIdentifier(_inputModel, string.Empty)))
+                                    {
+                                        <li>@message</li>
+                                    }
+                                </ul>
+                            </div>
+                        </div>
+                    }
                     
                     <div class="modal-header bg-light">
                         <h5 class="modal-title fw-bold text-dark">
                             <span class="bi @(_documentEditedId.HasValue ? "bi-pencil-square" : "bi-cloud-upload-fill") me-2"></span>
                             @(_documentEditedId.HasValue ? "Edit" : "Create")
                         </h5>
-                        <button type="button" class="btn-close" @onclick="CloseCreateModal" aria-label="Close"></button>
+                        <button type="button" class="btn-close" @onclick="CloseUploadModal" aria-label="Close"></button>
                     </div>
                     
                     <div class="modal-body py-4">
@@ -234,7 +253,7 @@
                     </div>
                     
                     <div class="modal-footer bg-light border-0">
-                        <button type="button" class="btn btn-outline-secondary fw-semibold px-4" @onclick="CloseCreateModal">Cancel</button>
+                        <button type="button" class="btn btn-outline-secondary fw-semibold px-4" @onclick="CloseUploadModal">Cancel</button>
                         <button type="submit" class="btn btn-primary fw-semibold px-4" 
                                 disabled="@(!_documentEditedId.HasValue && (_selectedBrowserFile is null || !string.IsNullOrWhiteSpace(_fileValidationError)))">
                             <span class="bi bi-check-circle-fill me-1"></span> Save
@@ -259,6 +278,17 @@
                 </div>
 
                 <div class="modal-body py-4">
+                    @if (!string.IsNullOrWhiteSpace(_deleteErrorMessage))
+                    {
+                        <div class="alert alert-danger d-flex align-items-start gap-2 shadow-sm border-0 mb-4 animate-fade-in" role="alert">
+                            <span class="bi bi-exclamation-triangle-fill fs-5 flex-shrink-0 mt-0.5" aria-hidden="true"></span>
+                            <div>
+                                <h6 class="alert-heading fw-bold mb-1">Concurrency Conflict</h6>
+                                <p class="mb-0 small">@_deleteErrorMessage</p>
+                            </div>
+                        </div>
+                    }
+
                     <p class="mb-2">Are you sure you want to delete this document?</p>
                     <div class="p-3 bg-light rounded border font-monospace small text-truncate text-dark fw-bold">
                         @_docToDelete.Name
@@ -272,7 +302,9 @@
                     <button type="button" class="btn btn-outline-secondary fw-semibold px-4" @onclick="CancelDelete">
                         Cancel
                     </button>
-                    <button type="button" class="btn btn-danger fw-semibold px-4 d-flex align-items-center gap-2" @onclick="ConfirmDelete">
+                    <button type="button" class="btn btn-danger fw-semibold px-4 d-flex align-items-center gap-2" 
+                            @onclick="ConfirmDelete"
+                            disabled="@(!string.IsNullOrWhiteSpace(_deleteErrorMessage))">
                         <span class="bi bi-trash3-fill"></span> Delete
                     </button>
                 </div>
@@ -281,31 +313,35 @@
     </div>
 }
 
-
 @code {
     private List<Document> _documents = [];
     private List<DocumentCategory> _categories = [];
     private Dictionary<Guid, string> _latestVersionMap = new();
     private DocumentFilterModel _filter = new();
     private DocumentModel _inputModel = new();
-    private IBrowserFile? _selectedBrowserFile = null;
-    private string? _fileValidationError = null;
+    private IBrowserFile? _selectedBrowserFile;
+    private string? _fileValidationError;
 
     private int _totalCount = 0;
-    private bool _showUploadModal = false;
-    private bool _showDeleteModal = false;
-    private Document? _docToDelete = null;
+
+    private bool _showUploadModal;
+    private Guid? _documentEditedId;
+
+    private bool _showDeleteModal;
+    private Document? _docToDelete;
+    private string? _deleteErrorMessage;
+
     private CancellationTokenSource? _debounceCts;
 
     private EditContext? _editContext;
     private ValidationMessageStore? _messageStore;
-    private Guid? _documentEditedId = null;
-
+   
     public void Dispose()
     {
         _debounceCts?.Cancel();
         _debounceCts?.Dispose();
 
+        SyncState.OnSyncCompleted -= HandleSyncCompleted;
         if (_editContext is not null)
         {
             _editContext.OnFieldChanged -= HandleFieldChanged;
@@ -318,6 +354,7 @@
         {
             await HydrateFilterDropdowns();
             await ApplyFilter();
+            SyncState.OnSyncCompleted += HandleSyncCompleted;
         }
     }
 
@@ -325,6 +362,7 @@
     {
         _showDeleteModal = false;
         _docToDelete = null;
+        _deleteErrorMessage = null;
     }
 
     private async Task ConfirmDelete()
@@ -340,6 +378,7 @@
             doc.IsDeleted = true;
             doc.SyncStatus = SyncStatus.PendingDelete;
             doc.UpdatedAt = now;
+            doc.ConcurrencyStamp = _docToDelete.ConcurrencyStamp;
 
             var versions = await context.DocumentVersions.Where(v => v.DocumentId == doc.Id).ToListAsync();
             foreach (var v in versions)
@@ -348,11 +387,23 @@
                 v.SyncStatus = SyncStatus.PendingDelete;
                 v.UpdatedAt = now;
             }
-            await context.SaveChangesAsync();
+
+            try
+            {
+                await context.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                _deleteErrorMessage = Web.Client.Constants.ConcurrencyErrorMessage;
+                StateHasChanged();
+                return;
+            }
         }
 
         _showDeleteModal = false;    
         _docToDelete = null;
+        _deleteErrorMessage = null;
+        _filter.Reset();
         await ApplyFilter();
     }
 
@@ -362,6 +413,14 @@
         if (_messageStore is null || _editContext is null) return;
         _messageStore.Clear(e.FieldIdentifier);
         _editContext.NotifyValidationStateChanged();
+    }
+
+    private async Task HandleSyncCompleted()
+    {
+        _filter.Reset();
+        await ApplyFilter();
+
+        await InvokeAsync(StateHasChanged);
     }
 
     private async Task HydrateFilterDropdowns()
@@ -414,7 +473,8 @@
         _inputModel = new DocumentModel
         {
             Name = doc.Name,
-            DocumentCategoryId = doc.DocumentCategoryId.ToString()
+            DocumentCategoryId = doc.DocumentCategoryId.ToString(),
+            ConcurrencyStamp = doc.ConcurrencyStamp
         };
 
         _selectedBrowserFile = null;
@@ -448,12 +508,6 @@
     {
         _docToDelete = doc;
         _showDeleteModal = true;
-    }
-
-    private async Task ResetPage()
-    {
-        _filter.PageNumber = 1;
-        await ApplyFilter();
     }
 
     private async Task Save()
@@ -491,6 +545,21 @@
                 // Clear rejection parameters to re-queue back into execution synchronization loops
                 existingDoc.SerializedErrors = null;
                 existingDoc.SyncStatus = SyncStatus.PendingUpdate;
+
+                existingDoc.ConcurrencyStamp = _inputModel.ConcurrencyStamp;
+                
+                try
+                {
+                    await context.SaveChangesAsync();
+                }
+                catch (DbUpdateConcurrencyException)
+                {
+                    var modelIdentifier = new FieldIdentifier(_inputModel, string.Empty);
+                    _messageStore!.Clear(modelIdentifier);
+                    _messageStore!.Add(modelIdentifier, Web.Client.Constants.ConcurrencyErrorMessage);
+                    _editContext.NotifyValidationStateChanged();
+                    return;
+                }
             }
         }
         else
@@ -524,11 +593,17 @@
 
             context.Documents.Add(document);
             context.DocumentVersions.Add(version);
-            _filter.Reset();
+            await context.SaveChangesAsync();
         }
+      
+        CloseUploadModal();
+        _filter.Reset();
+        await ApplyFilter();
+    }
 
-        await context.SaveChangesAsync();
-        CloseCreateModal();
+    private async Task ResetPage()
+    {
+        _filter.PageNumber = 1;
         await ApplyFilter();
     }
 
@@ -552,15 +627,15 @@
             query = query.Where(d => EF.Functions.Like(d.Name, term));
         }
 
-        if (_filter.CategoryIdFilter.HasValue) query = query.Where(d => d.DocumentCategoryId == _filter.CategoryIdFilter.Value);
-        if (_filter.SyncStatusFilter.HasValue) query = query.Where(d => d.SyncStatus == _filter.SyncStatusFilter.Value);
+        if (_filter.CategoryId.HasValue) query = query.Where(d => d.DocumentCategoryId == _filter.CategoryId.Value);
+        if (_filter.SyncStatus.HasValue) query = query.Where(d => d.SyncStatus == _filter.SyncStatus.Value);
 
         query = _filter.SortDescending ? query.OrderByDescending(d => d.CreatedAt) : query.OrderBy(d => d.CreatedAt);
         
         _totalCount = await query.CountAsync();
         _documents = await query
-            .Skip((_filter.PageNumber - 1) * _filter.PageSize)
-            .Take(_filter.PageSize)
+            .Skip((_filter.PageNumber - 1) * DocumentFilterModel.PageSize)
+            .Take(DocumentFilterModel.PageSize)
             .ToListAsync();
 
         // Cache version hash descriptors map mapping profiles cleanly
@@ -578,7 +653,7 @@
         StateHasChanged();
     }
 
-    private void CloseCreateModal()
+    private void CloseUploadModal()
     {
         if (_editContext is not null)
         {

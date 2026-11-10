@@ -1,37 +1,34 @@
 ﻿@page "/admin/documents/{DocumentId:guid}/document-versions"
 @rendermode InteractiveAuto
-@attribute [Authorize(Roles = Constants.AdminRoleName)]
+@attribute [Authorize(Roles = Domain.Shared.Constants.AdminRoleName)]
 @layout MainLayout
 
-@using Domain.Shared
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.EntityFrameworkCore
 @using SqliteWasmHelper
 @using Web.Client.Components
 @using Web.Client.Data
 @using Web.Client.Extensions
+@using Web.Client.Services
 
 @inject ISqliteWasmDbContextFactory<ApplicationDbContext> DbContextFactory
 @inject ILogger<DocumentVersions> Logger
+@inject SyncStateProvider SyncState
 @inject TimeProvider TimeProvider
 
 <CustomPageTitle Value="Document Versions" />
 
 <div class="p-4 animate-fade-in">
-    <div class="mb-4 d-flex justify-content-between align-items-center">
-        <div>
+    <PageHeader Title="Document Versions" Subtitle="@($"Document Id: {_documentName} (#{DocumentId})")" IconClass="bi bi-file-earmark-text">
+        <ActionContent>
             <a href="/admin/documents" class="btn btn-sm btn-outline-secondary mb-2 fw-semibold">
                 <span class="bi bi-arrow-left"></span> Documents
             </a>
-            <h1 class="h3 fw-bold mb-0">Versions</h1>
-            <small class="text-muted font-monospace">Document Id: @_documentName (#@DocumentId)</small>
-        </div>
-        <div>
             <button class="btn btn-primary d-flex align-items-center gap-2 shadow-sm fw-semibold" @onclick="OpenUploadModal">
                 <span class="bi bi-plus-circle"></span> Create
             </button>
-        </div>
-    </div>
+        </ActionContent>
+    </PageHeader>
 
     @* Global Alert Banner for Blocked Sync Retries *@
     @if (_versions.Any(v => !string.IsNullOrWhiteSpace(v.SerializedErrors)))
@@ -73,7 +70,7 @@
                     {
                         @foreach (var version in _versions)
                         {
-                                                        
+
                             <tr class="@(!string.IsNullOrWhiteSpace(version.SerializedErrors) ? "table-danger-light border-start border-danger border-3" : "")">
                                 <td class="ps-4 text-secondary">#@version.Id.ToString()[..8]</td>
                                 <td class="fw-bold text-dark text-truncate" style="max-width: 200px;" title="@version.ContentHash">@version.ContentHash</td>
@@ -141,7 +138,6 @@
     </div>
 </div>
 
-
 @if (_showUploadModal)
 {
     <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);" role="dialog">
@@ -155,6 +151,17 @@
                     <button type="button" class="btn-close" @onclick="CloseUploadModal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body py-4">
+                    @if (!string.IsNullOrWhiteSpace(_editErrorMessage))
+                    {
+                        <div class="alert alert-danger d-flex align-items-start gap-2 shadow-sm border-0 mb-4 animate-fade-in" role="alert">
+                            <span class="bi bi-exclamation-triangle-fill fs-5 flex-shrink-0 mt-0.5" aria-hidden="true"></span>
+                            <div>
+                                <h6 class="alert-heading fw-bold mb-1">Concurrency Conflict</h6>
+                                <p class="mb-0 small">@_editErrorMessage</p>
+                            </div>
+                        </div>
+                    }
+
                     <p class="small text-secondary mb-3">
                         Select a file to attach. Only PDF and DOCX formats up to @(Web.Client.Extensions.BrowserFile.MaxMB)MB are supported.
                     </p>
@@ -175,8 +182,9 @@
                 </div>
                 <div class="modal-footer bg-light border-0">
                     <button type="button" class="btn btn-outline-secondary fw-semibold px-4" @onclick="CloseUploadModal">Cancel</button>
+                    @* Disable the submission path if an active background sync collision hits *@
                     <button type="button" class="btn btn-primary fw-semibold px-4" @onclick="Save"
-                            disabled="@(_selectedBrowserFile is null || !string.IsNullOrWhiteSpace(_fileValidationError))">
+                            disabled="@(_selectedBrowserFile is null || !string.IsNullOrWhiteSpace(_fileValidationError) || !string.IsNullOrWhiteSpace(_editErrorMessage))">
                         <span class="bi @(_versionToEdit is null ? "bi-cloud-arrow-up-fill" : "bi-check-circle-fill") me-1"></span>
                         @(_versionToEdit is null ? "Save" : "Apply & Re-queue")
                     </button>
@@ -199,6 +207,17 @@
                 </div>
 
                 <div class="modal-body py-4">
+                    @if (!string.IsNullOrWhiteSpace(_deleteErrorMessage))
+                    {
+                        <div class="alert alert-danger d-flex align-items-start gap-2 shadow-sm border-0 mb-4 animate-fade-in" role="alert">
+                            <span class="bi bi-exclamation-triangle-fill fs-5 flex-shrink-0 mt-0.5" aria-hidden="true"></span>
+                            <div>
+                                <h6 class="alert-heading fw-bold mb-1">Concurrency Conflict</h6>
+                                <p class="mb-0 small">@_deleteErrorMessage</p>
+                            </div>
+                        </div>
+                    }
+
                     <p class="mb-2">Are you sure you want to delete this version?</p>
                     <div class="p-3 bg-light rounded border font-monospace small text-truncate text-dark fw-bold">
                         #@_versionToDelete.Id.ToString()[..8]
@@ -212,7 +231,9 @@
                     <button type="button" class="btn btn-outline-secondary fw-semibold px-4" @onclick="CancelDelete">
                         Cancel
                     </button>
-                    <button type="button" class="btn btn-danger fw-semibold px-4 d-flex align-items-center gap-2" @onclick="ConfirmDelete">
+                    <button type="button" class="btn btn-danger fw-semibold px-4 d-flex align-items-center gap-2" 
+                            @onclick="ConfirmDelete"
+                            disabled="@(!string.IsNullOrWhiteSpace(_deleteErrorMessage))">
                         <span class="bi bi-trash3-fill"></span> Delete
                     </button>
                 </div>
@@ -221,19 +242,29 @@
     </div>
 }
 
+
 @code {
     [Parameter] public Guid DocumentId { get; set; }
 
     private List<DocumentVersion> _versions = [];
     private string _documentName = "Loading...";
 
-    private IBrowserFile? _selectedBrowserFile = null;
-    private string? _fileValidationError = null;
-    
-    private bool _showUploadModal = false;
-    private bool _showDeleteModal = false;
-    private DocumentVersion? _versionToEdit = null;
-    private DocumentVersion? _versionToDelete = null;
+    private IBrowserFile? _selectedBrowserFile;
+    private string? _fileValidationError;
+
+    private bool _showUploadModal;
+  
+    private DocumentVersion? _versionToEdit;
+    private string? _editErrorMessage;
+
+    private bool _showDeleteModal;
+    private DocumentVersion? _versionToDelete;
+    private string? _deleteErrorMessage;
+   
+    public void Dispose()
+    {
+        SyncState.OnSyncCompleted -= HandleSyncCompleted;
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -241,6 +272,7 @@
         {
             await LoadDocument();
             await LoadVersions();
+            SyncState.OnSyncCompleted += HandleSyncCompleted;
         }
     }
 
@@ -248,6 +280,7 @@
     {
         _showDeleteModal = false;
         _versionToDelete = null;
+        _deleteErrorMessage = null;
     }
 
     private async Task ConfirmDelete()
@@ -263,12 +296,24 @@
             version.IsDeleted = true;
             version.SyncStatus = SyncStatus.PendingDelete;
             version.UpdatedAt = now;
-            await context.SaveChangesAsync();
+            version.ConcurrencyStamp = _versionToDelete.ConcurrencyStamp;
+
+            try
+            {
+                 await context.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                _deleteErrorMessage = Web.Client.Constants.ConcurrencyErrorMessage;
+                StateHasChanged();
+                return;
+            }
         }
 
         _showDeleteModal = false;
         _versionToDelete = null;
-         await LoadVersions();
+        _deleteErrorMessage = null;
+        await LoadVersions();
     }
 
     private void EditRejectedVersion(DocumentVersion version)
@@ -277,6 +322,13 @@
         _selectedBrowserFile = null;
         _fileValidationError = null;
         _showUploadModal = true;
+    }
+
+    private async Task HandleSyncCompleted()
+    {
+        await LoadVersions();
+
+        await InvokeAsync(StateHasChanged);
     }
 
     private async Task LoadDocument()
@@ -338,6 +390,7 @@
             newVersion.CreatedAt = now;
             newVersion.UpdatedAt = now;
             context.DocumentVersions.Add(newVersion);
+            await context.SaveChangesAsync();
         }
         else
         {
@@ -356,11 +409,20 @@
                 return;
             }
 
-
             version.UpdatedAt = now;
+            version.ConcurrencyStamp = _versionToEdit.ConcurrencyStamp;
+            try
+            {
+                 await context.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                _editErrorMessage = Web.Client.Constants.ConcurrencyErrorMessage;
+                StateHasChanged();
+                return;
+            }
         }
-
-        await context.SaveChangesAsync();
+      
         CloseUploadModal();
         await LoadVersions();
     }

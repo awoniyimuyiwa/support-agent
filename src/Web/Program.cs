@@ -12,6 +12,7 @@ using SqliteWasmHelper;
 using Web.Auth;
 using Web.Client;
 using Web.Client.Data;
+using Web.Client.Services;
 using Web.Components;
 using Web.Extensions;
 using Web.Http;
@@ -215,7 +216,7 @@ builder.Services.AddAuthentication(options =>
      options.AccessDeniedPath = "/403";
 
      // Match auth cookie settings parameters with API service
-     options.Cookie.Name = Constants.AuthCookieName;
+     options.Cookie.Name = Api.Contracts.Constants.AuthCookieName;
      options.Cookie.Path = "/";
      options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
 
@@ -242,12 +243,12 @@ builder.Services.AddRazorComponents()
         options.SerializeAllClaims = true;
      });
 
+builder.Services.AddScoped<SyncStateProvider>();
 
 // Register dummy service implementations to support safe server-side pre-rendering
 builder.Services.AddDbContextFactory<ApplicationDbContext>(options =>
     options.UseSqlite("Data Source=:memory:"));
 builder.Services.AddScoped(typeof(ISqliteWasmDbContextFactory<>), typeof(ServerSqliteWasmDbContextFactory<>));
-
 
 // Enable YARP mapping layers.
 builder.Services.AddHttpForwarder();

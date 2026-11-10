@@ -4,11 +4,12 @@
 
 <AuthorizeView>
     <Authorized>
-        <div class="dropdown position-relative d-inline-block" @onmouseleave="CloseDropdown">
-            
+        <div class="dropdown position-relative d-inline-block">
+
             <button class="btn btn-link text-decoration-none dropdown-toggle d-flex align-items-center gap-2 border-0 py-1.5 px-3"
                     type="button"
                     @onclick="ToggleDropdown"
+                    @onclick:stopPropagation
                     style="color: #ffffff; background: transparent; transition: opacity 0.15s ease;">
                 <div class="bg-primary text-white rounded-circle d-flex align-items-center justify-content-center shadow-sm fw-bold" style="width: 28px; height: 28px; font-size: 0.85rem;">
                     @(context.User.Identity?.Name?[..1].ToUpper() ?? "U")
@@ -18,8 +19,8 @@
                 </span>
             </button>
 
-            <ul class="dropdown-menu dropdown-menu-end shadow border-0 mt-2 animate-fade-in @(_isOpen ? "show" : string.Empty)"
-                style="position: absolute; right: 0; left: auto; display: @(_isOpen ? "block" : "none"); min-width: 200px; z-index: 1050;">
+            <ul class="dropdown-menu dropdown-menu-end shadow border-0 animate-fade-in @(_isOpen ? "show" : string.Empty)"
+                style="position: absolute; right: 0; left: auto; display: @(_isOpen ? "block" : "none"); min-width: 200px; z-index: 1050; top: 105%;">
                 <li class="px-3 py-2 border-bottom mb-1 bg-light rounded-top">
                     <div class="small fw-bold text-dark">Signed in as</div>
                     <div class="small text-secondary text-truncate" style="max-width: 180px;">@context.User.Identity?.Name</div>
@@ -36,6 +37,12 @@
                 </li>
             </ul>
         </div>
+
+        <!-- If the dropdown is open, clicking anywhere else on screen closes it instantly -->
+        @if (_isOpen)
+        {
+            <div class="position-fixed top-0 start-0 w-100 h-100" style="z-index: 1040; background: transparent;" @onclick="CloseDropdown"></div>
+        }
     </Authorized>
     <NotAuthorized>
         <button @onclick="RedirectToLogin" class="btn btn-primary btn-sm fw-bold px-3 d-flex align-items-center gap-2 shadow-sm">
@@ -60,8 +67,6 @@
 
     private void RedirectToLogin()
     {
-        // FORCED RELOAD: Safely tears down the running WebAssembly sandbox
-        // context and forces the browser to hit the server project architecture natively.
         Navigation.NavigateTo("login", forceLoad: true);
     }
 }

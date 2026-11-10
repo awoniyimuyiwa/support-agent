@@ -1,7 +1,7 @@
-﻿@using Microsoft.Extensions.Configuration
-@using Api.Contracts
-@using Api.Contracts.Extensions
+﻿@using Api.Contracts.Extensions
+@using Microsoft.Extensions.Configuration
 
+@inject PersistentComponentState ComponentState
 @inject IConfiguration Configuration
 
 <!DOCTYPE html>
@@ -47,6 +47,7 @@
       bootstrapping the static shell before handing execution off to the client-side WebAssembly engine.
     *@
     <Web.Client.Routes @rendermode="InteractiveAuto" />
+   
     <script src="@Assets["_framework/blazor.web.js"]"></script>
 
     <!-- Read the anti-forgery cookie token for AJAX client calls -->
@@ -59,7 +60,7 @@
             }
 
             window.getAntiforgeryToken = () => {
-                return getCookie(@((MarkupString)System.Text.Json.JsonSerializer.Serialize(Constants.AntiforgeryJSReadableCookieName)));
+                return getCookie(@((MarkupString)System.Text.Json.JsonSerializer.Serialize(Api.Contracts.Constants.AntiforgeryJSReadableCookieName)));
             };
     </script>
 
@@ -74,3 +75,4 @@
     </script>-->
 </body>
 </html>
+

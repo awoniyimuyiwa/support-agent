@@ -44,7 +44,7 @@ public class AntiforgeryDelegatingHandler(
 
                         if (!string.IsNullOrWhiteSpace(token))
                         {
-                            var headerName = Constants.AntiforgeryHeaderName;
+                            var headerName = Api.Contracts.Constants.AntiforgeryHeaderName;
 
                             if (request.Headers.Contains(headerName))
                             {

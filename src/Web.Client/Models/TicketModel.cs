@@ -14,6 +14,8 @@ public class TicketModel
     public TicketStatus Status { get; set; } = TicketStatus.Open;
 
     [Required]
-    [StringLength(Constants.StringMaxLength)]
+    [StringLength(Domain.Shared.Constants.StringMaxLength)]
     public string Title { get; set; } = string.Empty;
+
+    public string? ConcurrencyStamp { get; set; }
 }
