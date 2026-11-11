@@ -16,7 +16,7 @@ public class DocumentVersion : IHasFile
 
     public string? ConcurrencyStamp { get; set; }
 
-    public Guid StoredFileId { get; set; }
+    public Guid? StoredFileId { get; set; }
 
     public StoredFile? StoredFile { get; set; }
 

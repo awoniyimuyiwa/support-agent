@@ -253,14 +253,14 @@
     private string? _fileValidationError;
 
     private bool _showUploadModal;
-  
+
     private DocumentVersion? _versionToEdit;
     private string? _editErrorMessage;
 
     private bool _showDeleteModal;
     private DocumentVersion? _versionToDelete;
     private string? _deleteErrorMessage;
-   
+
     public void Dispose()
     {
         SyncState.OnSyncCompleted -= HandleSyncCompleted;
@@ -289,7 +289,9 @@
 
         var now = TimeProvider.GetUtcNow().DateTime;
         using var context = await DbContextFactory.CreateDbContextAsync();
-        var version = await context.DocumentVersions.FindAsync(_versionToDelete.Id);
+        var version = await context.DocumentVersions
+            .Include(dv => dv.StoredFile)
+            .FirstOrDefaultAsync(v => v.Id == _versionToDelete.Id);
 
         if (version is not null)
         {
@@ -297,6 +299,10 @@
             version.SyncStatus = SyncStatus.PendingDelete;
             version.UpdatedAt = now;
             version.ConcurrencyStamp = _versionToDelete.ConcurrencyStamp;
+            if (version.StoredFile is not null)
+            {
+                context.StoredFiles.Remove(version.StoredFile);
+            }
 
             try
             {

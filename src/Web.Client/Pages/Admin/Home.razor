@@ -161,12 +161,6 @@
                             <span class="fw-mono fw-medium text-dark">/api/v1/sync</span>
                         </div>
                     </div>
-
-                    <div class="mt-4 pt-2">
-                        <button type="button" class="btn btn-outline-danger btn-sm w-100 fw-semibold d-flex align-items-center justify-content-center gap-2" @onclick="HandleDatabasePurge">
-                            <span class="bi bi-trash3-fill"></span> Purge Binary Cache
-                        </button>
-                    </div>
                 </div>
             </div>
         </div>
@@ -232,13 +226,4 @@
         // Heavy binary arrays cached on-device waiting for SAS network pushes
         _cachedFileCount = await context.StoredFiles.CountAsync();
     }
-
-    private async Task HandleDatabasePurge()
-    {
-        using var context = await DbFactory.CreateDbContextAsync();
-        context.StoredFiles.RemoveRange(context.StoredFiles);
-        await context.SaveChangesAsync();
-        await LoadStats();
-    }
-
 }
