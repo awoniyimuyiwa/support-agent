@@ -68,9 +68,21 @@
 
                 <!-- Call to Action Actions -->
                 <div class="d-flex flex-wrap align-items-center justify-content-center gap-3 mb-5">
-                    <a href="/admin" class="btn btn-dark btn-lg px-4 py-3 fw-bold rounded-3 shadow d-inline-flex align-items-center gap-2 transition-all">
-                        <span class="bi bi-speedometer2"></span> Enter Dashboard
-                    </a>
+                    <AuthorizeView>
+                        <Authorized>
+                            @{
+                                var heroRoute = context.User.IsAdmin ? "/admin" : "/dashboard";
+                            }
+                            <a href="@heroRoute" class="btn btn-dark btn-lg px-4 py-3 fw-bold rounded-3 shadow d-inline-flex align-items-center gap-2 transition-all">
+                                <span class="bi bi-speedometer2"></span> Enter Dashboard
+                            </a>
+                        </Authorized>
+                        <NotAuthorized>
+                            <a href="/dashboard" class="btn btn-dark btn-lg px-4 py-3 fw-bold rounded-3 shadow d-inline-flex align-items-center gap-2 transition-all">
+                                <span class="bi bi-speedometer2"></span> Enter Dashboard
+                            </a>
+                        </NotAuthorized>
+                    </AuthorizeView>
                     <a href="/tickets" class="btn btn-white border border-gray-200 btn-lg px-4 py-3 fw-bold rounded-3 shadow-sm d-inline-flex align-items-center gap-2 bg-white transition-all">
                         View Active Queue
                     </a>
@@ -79,58 +91,98 @@
         </div>
     </div>
 
-    <!-- 💻 Interactive Workspace Live Preview Window Mockup -->
-    <div class="container max-width-container mb-5 text-center position-relative z-1 animate-fade-in-up">
-        <div class="browser-mockup border border-light-subtle rounded-4 p-2 bg-white shadow-lg mx-auto" style="max-width: 840px; opacity: 0.98;">
-            <!-- Browser Header Bar Controls -->
-            <div class="d-flex align-items-center justify-content-between px-3 py-2 border-bottom border-light-subtle mb-3">
+    <!-- 🤖 Live AI Ticket Processing Pipeline Animation -->
+    <div class="container max-width-container mb-5 position-relative z-1">
+        <div class="ai-pipeline-card border border-light-subtle rounded-4 p-4 bg-white shadow-lg mx-auto overflow-hidden"
+             style="max-width: 880px;">
+
+            <!-- Header Bar -->
+            <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 pb-3 mb-4 border-bottom border-light-subtle">
                 <div class="d-flex align-items-center gap-2">
-                    <span class="dot bg-danger"></span>
-                    <span class="dot bg-warning"></span>
-                    <span class="dot bg-success"></span>
-                    <span class="small text-secondary ms-2 font-monospace fs-xs opacity-50">efmaldesk://local-workspace</span>
+                    <span class="pulse-dot"></span>
+                    <span class="fw-bold text-dark small">Autonomous Triage &amp; Sync Engine</span>
                 </div>
-                <div class="d-flex align-items-center gap-1 small text-muted">
-                    <span class="bi bi-wifi-off text-warning me-1"></span> Local Cache Engine Active
+                <div class="d-flex align-items-center gap-2">
+                    <span class="badge bg-primary-subtle text-primary rounded-pill px-2.5 py-1 small">
+                        <i class="bi bi-robot me-1"></i> 2 AI Agents Active
+                    </span>
+                    <span class="badge bg-success-subtle text-success rounded-pill px-2.5 py-1 small">
+                        <i class="bi bi-check-circle-fill me-1"></i> SQLite Sync Ready
+                    </span>
                 </div>
             </div>
 
-            <!-- Lightweight Mock Interface Body -->
-            <div class="p-3 bg-light rounded-3 text-start">
-                <div class="d-flex justify-content-between align-items-center mb-3">
-                    <div class="h6 fw-bold text-dark mb-0">⚡ Active Local Queue Ledger</div>
-                    <span class="badge bg-primary text-white rounded-2 px-2 py-1 small">2 Unsaved Operations</span>
-                </div>
+            <!-- Animated 3-Stage Pipeline -->
+            <div class="row align-items-center g-3 text-center position-relative">
 
-                <div class="bg-white border rounded-3 p-3 mb-2 d-flex justify-content-between align-items-center shadow-xs">
-                    <div class="d-flex align-items-center gap-3">
-                        <span class="bi bi-ticket-detailed text-warning fs-4"></span>
-                        <div>
-                            <span class="small d-block fw-bold text-dark">#TK-1042 — Azure Storage Connection Reset Exceptions</span>
-                            <small class="text-muted">Assigned to: You • Updated 2m ago</small>
+                <!-- Stage 1: Incoming Queue -->
+                <div class="col-12 col-md-4">
+                    <div class="p-3 rounded-3 bg-light border border-light-subtle position-relative">
+                        <div class="text-uppercase text-muted fw-bold mb-2" style="font-size: 0.68rem; letter-spacing: 0.05em;">
+                            1. Incoming Queue
+                        </div>
+                        <div class="d-flex flex-column gap-2">
+                            <div class="ticket-pill ticket-1 bg-white border rounded-2 px-2.5 py-1.5 d-flex align-items-center justify-content-between shadow-xs">
+                                <span class="small fw-semibold text-dark"><i class="bi bi-ticket-perforated text-warning me-1"></i>#TK-1048</span>
+                                <span class="badge bg-warning-subtle text-warning-emphasis" style="font-size: 0.65rem;">Triaging</span>
+                            </div>
+                            <div class="ticket-pill ticket-2 bg-white border rounded-2 px-2.5 py-1.5 d-flex align-items-center justify-content-between shadow-xs">
+                                <span class="small fw-semibold text-dark"><i class="bi bi-ticket-perforated text-primary me-1"></i>#TK-1049</span>
+                                <span class="badge bg-secondary-subtle text-secondary" style="font-size: 0.65rem;">Queued</span>
+                            </div>
                         </div>
                     </div>
-                    <span class="badge bg-warning-subtle text-warning border border-warning-subtle rounded-pill px-2.5 py-1 small fw-semibold">
-                        Pending Sync
-                    </span>
                 </div>
 
-                <div class="bg-white border rounded-3 p-3 mb-2 d-flex justify-content-between align-items-center shadow-xs">
-                    <div class="d-flex align-items-center gap-3">
-                        <span class="bi bi-ticket-detailed text-success fs-4"></span>
-                        <div>
-                            <span class="small d-block fw-bold text-dark">#TK-1041 — Workspace initialization pipeline failing on Dev branch</span>
-                            <small class="text-muted">Assigned to: System Administration • Updated 12m ago</small>
+                <!-- Stage 2: AI Robot Core -->
+                <div class="col-12 col-md-4">
+                    <div class="p-3 rounded-4 border border-primary-subtle position-relative mx-auto"
+                         style="background: linear-gradient(145deg, #f0f7ff 0%, #ffffff 100%);">
+                        <!-- Animated Conveyor Track -->
+                        <div class="conveyor-line d-none d-md-block"></div>
+
+                        <!-- Animated AI Robot SVG -->
+                        <div class="robot-float mx-auto mb-2 d-flex align-items-center justify-content-center rounded-circle bg-primary text-white shadow"
+                             style="width: 64px; height: 64px;">
+                            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="3" y="11" width="18" height="10" rx="2" />
+                                <circle cx="12" cy="5" r="2" />
+                                <path d="M12 7v4" />
+                                <line class="robot-eye" x1="8" y1="16" x2="8" y2="16" stroke-width="3" />
+                                <line class="robot-eye" x1="16" y1="16" x2="16" y2="16" stroke-width="3" />
+                            </svg>
+                        </div>
+
+                        <div class="fw-bold text-dark small">AI Support Core</div>
+                        <div class="text-primary fw-medium scanning-text" style="font-size: 0.72rem;">
+                            Analyzing &amp; drafting fix...
                         </div>
                     </div>
-                    <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2.5 py-1 small fw-semibold">
-                        Synced Upstream
-                    </span>
                 </div>
+
+                <!-- Stage 3: Resolved & Synced -->
+                <div class="col-12 col-md-4">
+                    <div class="p-3 rounded-3 bg-light border border-light-subtle">
+                        <div class="text-uppercase text-muted fw-bold mb-2" style="font-size: 0.68rem; letter-spacing: 0.05em;">
+                            3. Resolved &amp; Synced
+                        </div>
+                        <div class="d-flex flex-column gap-2">
+                            <div class="resolved-pill bg-white border border-success-subtle rounded-2 px-2.5 py-1.5 d-flex align-items-center justify-content-between shadow-xs">
+                                <span class="small fw-semibold text-dark"><i class="bi bi-check-circle-fill text-success me-1"></i>#TK-1047</span>
+                                <span class="badge bg-success-subtle text-success" style="font-size: 0.65rem;">Synced</span>
+                            </div>
+                            <div class="bg-white border border-success-subtle rounded-2 px-2.5 py-1.5 d-flex align-items-center justify-content-between shadow-xs">
+                                <span class="small fw-semibold text-dark"><i class="bi bi-check-circle-fill text-success me-1"></i>#TK-1046</span>
+                                <span class="badge bg-success-subtle text-success" style="font-size: 0.65rem;">Synced</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
             </div>
         </div>
     </div>
-
+    
     <!-- 🏷️ Core Operational Value Pillars -->
     <div class="container position-relative z-1 mb-5 max-width-container">
         <div class="row g-4 justify-content-center">

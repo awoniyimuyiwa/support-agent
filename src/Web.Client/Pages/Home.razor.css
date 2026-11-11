@@ -26,13 +26,13 @@
 .orb-1 {
     top: -150px;
     right: -100px;
-    background: radial-gradient(circle, rgba(13,110,253,0.4) 0%, rgba(255,255,255,0) 70%);
+    background: radial-gradient(circle, rgba(13, 110, 253, 0.4) 0%, rgba(255, 255, 255, 0) 70%);
 }
 
 .orb-2 {
     bottom: -100px;
     left: -150px;
-    background: radial-gradient(circle, rgba(25,135,84,0.3) 0%, rgba(255,255,255,0) 70%);
+    background: radial-gradient(circle, rgba(25, 135, 84, 0.3) 0%, rgba(255, 255, 255, 0) 70%);
 }
 
 /* Gradient Header Text */
@@ -74,8 +74,8 @@
 
 .hover-translate:hover {
     transform: translateY(-4px);
-    box-shadow: 0 10px 20px rgba(0,0,0,0.04) !important;
-    border-color: rgba(13,110,253,0.2) !important;
+    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.04) !important;
+    border-color: rgba(13, 110, 253, 0.2) !important;
 }
 
 .btn-white:hover {
@@ -83,19 +83,50 @@
     border-color: #dee2e6 !important;
 }
 
-/* Mock Browser Frame Indicators */
-.dot {
-    width: 10px;
-    height: 10px;
+/* AI Ticket Pipeline Animations */
+.pulse-dot {
+    width: 9px;
+    height: 9px;
     border-radius: 50%;
+    background-color: #198754;
     display: inline-block;
+    animation: pulseRing 1.8s infinite ease-in-out;
 }
 
-.fs-xs {
-    font-size: 0.75rem;
+.robot-float {
+    animation: floatBot 2.8s ease-in-out infinite;
 }
 
-/* Keyframe Entry Micro-Animations */
+.robot-eye {
+    animation: blinkEye 3.5s infinite;
+}
+
+.scanning-text {
+    animation: fadePulse 2s ease-in-out infinite;
+}
+
+.ticket-1 {
+    animation: slideTicket 3.2s ease-in-out infinite;
+}
+
+.resolved-pill {
+    animation: popResolved 3.2s ease-in-out infinite;
+}
+
+.conveyor-line {
+    position: absolute;
+    top: 50%;
+    left: -24px;
+    right: -24px;
+    height: 2px;
+    background: repeating-linear-gradient( 90deg, #0d6efd 0px, #0d6efd 6px, transparent 6px, transparent 12px );
+    background-size: 24px 2px;
+    animation: moveTrack 1s linear infinite;
+    z-index: -1;
+    opacity: 0.45;
+}
+
+/* Keyframe Animations */
 .animate-fade-in-up {
     animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
@@ -109,5 +140,79 @@
     to {
         opacity: 1;
         transform: translateY(0);
+    }
+}
+
+@keyframes floatBot {
+    0%, 100% {
+        transform: translateY(0px);
+    }
+
+    50% {
+        transform: translateY(-6px);
+    }
+}
+
+@keyframes blinkEye {
+    0%, 92%, 100% {
+        opacity: 1;
+    }
+
+    95% {
+        opacity: 0.15;
+    }
+}
+
+@keyframes pulseRing {
+    0%, 100% {
+        transform: scale(1);
+        opacity: 1;
+    }
+
+    50% {
+        transform: scale(1.45);
+        opacity: 0.5;
+    }
+}
+
+@keyframes fadePulse {
+    0%, 100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.45;
+    }
+}
+
+@keyframes slideTicket {
+    0%, 100% {
+        transform: translateX(0);
+    }
+
+    50% {
+        transform: translateX(6px);
+        border-color: #0d6efd;
+    }
+}
+
+@keyframes popResolved {
+    0%, 60%, 100% {
+        transform: scale(1);
+    }
+
+    75% {
+        transform: scale(1.03);
+        border-color: #198754;
+    }
+}
+
+@keyframes moveTrack {
+    from {
+        background-position: 0 0;
+    }
+
+    to {
+        background-position: 24px 0;
     }
 }
