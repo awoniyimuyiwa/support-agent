@@ -3,24 +3,12 @@
 
 @inject Microsoft.Extensions.Configuration.IConfiguration Configuration
 
-<PageTitle>@TitlePrefix@_appName</PageTitle>
+<PageTitle>@TitlePrefix@Configuration["AppName"]!.AddSpacesToPascalCase</PageTitle>
 
 @code {
     [Parameter] 
     [EditorRequired] 
     public string Value { get; set; } = string.Empty;
 
-    private string _appName = string.Empty;
-
     private string TitlePrefix => string.IsNullOrWhiteSpace(Value) ? "" : $"{Value} - ";
-
-    protected override void OnInitialized()
-    {
-        var configuredName = Configuration["AppName"];
-        
-        if (!string.IsNullOrWhiteSpace(configuredName))
-        {
-            _appName = configuredName.AddSpacesToPascalCase;
-        }
-    }
 }

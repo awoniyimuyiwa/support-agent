@@ -1,4 +1,8 @@
 ﻿@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components
+@using Api.Contracts.Extensions
+
+@inject Microsoft.Extensions.Configuration.IConfiguration Configuration
 
 @*
   💡 DEPLOYMENT ARCHITECTURE NOTE:
@@ -9,7 +13,7 @@
 
 <div class="top-row ps-3 navbar navbar-dark">
     <div class="container-fluid">
-        <a class="navbar-brand" href="">Support Agent</a>
+        <a class="navbar-brand" href="">@Configuration["AppName"]!.AddSpacesToPascalCase</a>
     </div>
 </div>
 
@@ -46,7 +50,7 @@
                             @Domain.Shared.Constants.AdminRoleName
                         </div>
                         <div class="nav-item px-3">
-                            <NavLink class="nav-link" href="admin">
+                            <NavLink class="nav-link" href="admin" Match="NavLinkMatch.All">
                                 <span class="bi bi-shield-lock-fill" aria-hidden="true"></span> Control Panel
                             </NavLink>
                         </div>
