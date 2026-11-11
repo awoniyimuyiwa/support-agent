@@ -2,6 +2,10 @@
 @using Web.Client.Components
 @using Web.Client.Layout
 
+@inject IJSRuntime JS
+@inject ApiClient ApiClient
+@inject ILogger<Routes> Logger
+
 @*
   Do not wrap components in a <CascadingAuthenticationState> markup tag here or in MainLayout.
   Instead, the cascading state container task is registered globally via the background service layer
@@ -63,9 +67,44 @@
 @code {
     private ErrorBoundary? _errorBoundary;
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && OperatingSystem.IsBrowser())
+        {
+            await EnsureAntiforgeryToken();
+        }
+    }
+
     protected override void OnParametersSet()
     {
         RecoverFromError();
+    }
+
+    /// <summary>
+    /// Checks if the browser's antiforgery cookie is missing (e.g., after a browser restart
+    /// cleared session cookies while the persistent auth cookie survived) and seeds a fresh one.
+    ///
+    /// ARCHITECTURAL NOTE:
+    /// 400 Bad Request retry interceptors for mid-session token expiry is intetionally not imlemented.
+    /// ASP.NET Core Data Protection keys default to a 90-day lifetime, so keeping the pipeline simple
+    /// and letting a standard page refresh resolve rare mid-session expirations avoids unnecessary complexity.
+    /// </summary>
+    private async Task EnsureAntiforgeryToken()
+    {
+        try
+        {
+            var token = await JS.InvokeAsync<string>("getAntiforgeryToken");
+
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                Logger.LogInformation("Antiforgery cookie missing on WASM initialization. Seeding fresh tokens from API...");
+                using var _ = await ApiClient.GetAntiforgeryToken();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning("Antiforgery token fetching failed during startup: {Message}", ex.Message);
+        }
     }
 
     private void RecoverFromError()

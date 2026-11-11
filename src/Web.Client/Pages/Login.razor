@@ -7,7 +7,6 @@
 @using Microsoft.AspNetCore.Components.Authorization
 @using Web.Client.Components
 @using Web.Client.Models
-@using Web.Client.Services
 
 @inject ApiClient ApiClient
 @inject NavigationManager Nav
@@ -40,7 +39,7 @@
                        id="loginIdentifier"
                        class="form-control form-control-lg fs-6"
                        @bind-Value="_loginModel.Email"
-                       disabled="@(_isProcessing || !_isAntiforgeryLoaded)"
+                       disabled="@_isProcessing"
                        placeholder="Enter email or username..." />
             <ValidationMessage For="() => _loginModel.Email" class="text-danger small mt-1" />
         </div>
@@ -51,7 +50,7 @@
                        type="password"
                        class="form-control form-control-lg fs-6"
                        @bind-Value="_loginModel.Password"
-                       disabled="@(_isProcessing || !_isAntiforgeryLoaded)"
+                       disabled="@_isProcessing"
                        placeholder="Enter password..." />
             <ValidationMessage For="() => _loginModel.Password" class="text-danger small mt-1" />
         </div>
@@ -59,13 +58,8 @@
         <div class="d-grid gap-2">
             <button type="submit"
                     class="btn btn-primary btn-lg fs-6 fw-bold shadow-sm d-flex align-items-center justify-content-center gap-2"
-                    disabled="@(_isProcessing || !_isAntiforgeryLoaded)">
-                @if (!_isAntiforgeryLoaded)
-                {
-                    <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-                    <span>Initializing Security...</span>
-                }
-                else if (_isProcessing)
+                    disabled="@_isProcessing">
+                @if (_isProcessing)
                 {
                     <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
                     <span>Authenticating...</span>
@@ -93,8 +87,6 @@ else
 
     private bool _isProcessing = false;
 
-    private bool _isAntiforgeryLoaded = false;
-
     /// <summary>
     /// Acts as a pre-render form shield and asynchronous navigation buffer.
     /// When true, it completely hides login form inputs to prevent UI flickering while the Blazor router transitions to pages that require authentication like <code>/dashboard</code>.
@@ -119,7 +111,10 @@ else
 
             if (OperatingSystem.IsBrowser())
             {
+                // Yield control back to the renderer so the redirecting UI shield paints
+                // and router initialization completes before triggering navigation.
                 await Task.Yield();
+
                 Nav.NavigateTo("/dashboard", forceLoad: false);
             }
         }
@@ -136,29 +131,9 @@ else
                 return;
             }
 
-            try
+            if (_emailInput?.Element is not null)
             {
-                Logger.LogInformation("WASM client stabilized. Safely pulling client-side antiforgery token...");
-
-                // This call runs in the browser where cookies can be written
-                using var _ = await ApiClient.GetAntiforgeryToken();
-
-                _isAntiforgeryLoaded = true;
-
-                if (_emailInput?.Element is not null)
-                {
-                    await _emailInput.Element.Value.FocusAsync();
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.LogError(ex, "Initial login antiforgery pre-fetch failed: {ErrorMessage}", ex.Message);
-                _errorMessage = "Security initialization could not verify a safe connection, but form inputs have been unlocked as fallback.";
-                _isAntiforgeryLoaded = true; // Unlock as safe UI fallback fallback
-            }
-            finally
-            {
-                StateHasChanged();
+                await _emailInput.Element.Value.FocusAsync();
             }
         }
     }
@@ -178,8 +153,15 @@ else
                 _isRedirecting = true; // Turn on shield instantly to drop form layouts
                 StateHasChanged();
 
-                using var _ = await ApiClient.GetAntiforgeryToken();
-                
+                try
+                {
+                    using var _ = await ApiClient.GetAntiforgeryToken();
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogWarning(ex, "Post-login antiforgery rotation failed; continuing redirect.");
+                }
+
                 var destination = "/dashboard";
                 if (!string.IsNullOrWhiteSpace(ReturnUrl) && IsLocalUrl(ReturnUrl))
                 {
@@ -203,6 +185,7 @@ else
         }
         catch (Exception ex)
         {
+            _isRedirecting = false;
             _errorMessage = $"Network connection failure: Cannot communicate with the API gateway proxy. ({ex.Message})";
         }
         finally

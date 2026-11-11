@@ -9,6 +9,16 @@ using System.Threading.Tasks;
 
 namespace Web.Client.Http;
 
+/// <summary>
+/// Attaches the existing browser antiforgery cookie to state-changing HTTP requests.
+///
+/// ARCHITECTURAL NOTE:
+/// 400 Bad Request retry interceptors for mid-session token invalidation (such as if server Data Protection 
+/// keys are improperly reset or wiped across deployments without preserving the existing key ring) are intentionally not implemented. 
+/// Keeping this handler simple and letting a standard reload or re-authentication resolve rare invalidations 
+/// avoids unnecessary complexity.
+/// Missing token seeding on startup is handled in Routes.razor, and identity rotations occur on login/logout.
+/// </summary>
 public class AntiforgeryDelegatingHandler(
     IJSRuntime jsRuntime,
     ILogger<AntiforgeryDelegatingHandler> logger) : DelegatingHandler

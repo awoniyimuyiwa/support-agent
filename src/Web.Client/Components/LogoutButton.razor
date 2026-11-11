@@ -34,12 +34,24 @@
 
             if (response.IsSuccessStatusCode)
             {
+                try
+                {
+                    using var _ = await ApiClient.GetAntiforgeryToken();
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogWarning(ex, "Post-logout antiforgery rotation failed; continuing redirect.");
+                }
+
                 Logger.LogInformation("API successfully dropped cookies. Triggering hard view reload.");
 
                 // Force a hard reload back to the login route with forceLoad: true.
                 // This strips out all client memory spaces, flushes out old deserialized state,
                 // and accurately initializes the user context as Unauthenticated on the next pass.
                 Nav.NavigateTo("/login", forceLoad: true);
+                 
+                // Keep _isProcessing = true while the browser reloads
+                return;
             }
             else
             {
@@ -50,10 +62,8 @@
         {
             Logger.LogError(ex, "Logout routing routine caught an exception: {Message}", ex.Message);
         }
-        finally
-        {
-            _isProcessing = false;
-            StateHasChanged();
-        }
+         
+        _isProcessing = false;    
+        StateHasChanged();
     }
 }
