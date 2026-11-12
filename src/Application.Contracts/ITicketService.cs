@@ -29,7 +29,7 @@ public record TicketSyncItemDto(
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
     string? ConcurrencyStamp,
-    bool IsDeleted = false);
+    bool IsDeleted);
 
 public record TicketSyncDto(
     IReadOnlyCollection<TicketSyncItemDto> Items,

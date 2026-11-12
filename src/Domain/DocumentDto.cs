@@ -7,7 +7,7 @@ public record DocumentDto(
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
     string? ConcurrencyStamp,
-    bool IsDeleted = false);
+    bool IsDeleted);
 
 public record FullDocumentDto(
     Guid Id,
@@ -17,7 +17,7 @@ public record FullDocumentDto(
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
     string? ConcurrencyStamp,
-    bool IsDeleted = false,
+    bool IsDeleted,
     IReadOnlyCollection<DocumentVersionDto>? Versions = null) : DocumentDto(
         Id,
         CategoryId,
@@ -38,7 +38,7 @@ public record InternalDocumentDto(
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
     string? ConcurrencyStamp,
-    bool IsDeleted = false) : DocumentDto(
+    bool IsDeleted) : DocumentDto(
         Id: ExternalId,
         CategoryId,
         Name,

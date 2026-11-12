@@ -57,20 +57,16 @@
                 </select>
             </div>
 
-            <!-- Admin-Only Sync Status Dropdown Filter -->
-            @if (_isAdmin)
-            {
-                <div class="col-md-2">
-                    <label class="form-label small fw-bold text-secondary text-uppercase">Sync Status</label>
-                    <select class="form-select" @bind="_filter.SyncStatus" @bind:after="ResetPage">
-                        <option value="">Sync States</option>
-                        @foreach (var syncStatus in Enum.GetValues<SyncStatus>())
-                        {
-                            <option value="@syncStatus">@syncStatus.DisplayName</option>
-                        }
-                    </select>
-                </div>
-            }
+            <div class="col-md-2">
+                <label class="form-label small fw-bold text-secondary text-uppercase">Sync Status</label>
+                <select class="form-select" @bind="_filter.SyncStatus" @bind:after="ResetPage">
+                    <option value="">Sync States</option>
+                    @foreach (var syncStatus in VisibleSyncStatuses)
+                    {
+                        <option value="@syncStatus">@syncStatus.DisplayName</option>
+                    }
+                </select>
+            </div>
 
             <!-- Sort Column -->
             <div class="col-md-2">
@@ -354,6 +350,9 @@
 }
 
 @code {
+    private static readonly SyncStatus[] VisibleSyncStatuses =
+        [.. Enum.GetValues<SyncStatus>().Where(s => s != SyncStatus.PendingDelete)];
+
     [CascadingParameter] private Task<AuthenticationState> AuthStateTask { get; set; } = default!;
     [Parameter, EditorRequired] public string Title { get; set; } = "Tickets";
     [Parameter, EditorRequired] public string Subtitle { get; set; } = "Manage tickets";

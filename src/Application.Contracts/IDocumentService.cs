@@ -50,7 +50,7 @@ public record DocumentSyncItemDto(
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
     string? ConcurrencyStamp,
-    bool IsDeleted = false);
+    bool IsDeleted);
 
 public record CreateDocumentVersionDto(
     Guid Id,
@@ -71,5 +71,5 @@ public record DocumentVersionSyncItemDto(
     Guid Id,
     DateTimeOffset UpdatedAt,
     string? ConcurrencyStamp,
-    bool IsDeleted = false);
+    bool IsDeleted);
 

@@ -242,7 +242,8 @@ static class Queries
                 d.Name,
                 d.CreatedAt,
                 d.UpdatedAt,
-                d.ConcurrencyStamp));
+                d.ConcurrencyStamp,
+                d.IsDeleted));
         }
     }
 
@@ -256,7 +257,8 @@ static class Queries
                 d.Name,
                 d.CreatedAt,
                 d.UpdatedAt,
-                d.ConcurrencyStamp));
+                d.ConcurrencyStamp,
+                d.IsDeleted));
         }
     }
 
@@ -271,7 +273,8 @@ static class Queries
                 d.Name,
                 d.CreatedAt,
                 d.UpdatedAt,
-                d.ConcurrencyStamp));
+                d.ConcurrencyStamp,
+                d.IsDeleted));
         }
     }
 
@@ -285,7 +288,8 @@ static class Queries
                 d.Name,
                 d.CreatedAt,
                 d.UpdatedAt,
-                d.ConcurrencyStamp));
+                d.ConcurrencyStamp,
+                d.IsDeleted));
         }
     }
 

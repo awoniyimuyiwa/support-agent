@@ -51,7 +51,7 @@
                 <label class="form-label small fw-bold text-secondary text-uppercase">Sync Status</label>
                 <select class="form-select" @bind="_filter.SyncStatus" @bind:after="ResetPage">
                     <option value="">Sync States</option>
-                    @foreach (var syncStatus in Enum.GetValues<SyncStatus>())
+                    @foreach (var syncStatus in VisibleSyncStatuses)
                     {
                         <option value="@syncStatus">@syncStatus.DisplayName</option>
                     }
@@ -313,6 +313,9 @@
 }
 
 @code {
+    private static readonly SyncStatus[] VisibleSyncStatuses =
+        [.. Enum.GetValues<SyncStatus>().Where(s => s != SyncStatus.PendingDelete)];
+
     private List<Document> _documents = [];
     private List<DocumentCategory> _categories = [];
     private Dictionary<Guid, string> _latestVersionMap = new();

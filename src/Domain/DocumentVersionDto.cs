@@ -9,7 +9,7 @@ public record DocumentVersionDto(
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
     string? ConcurrencyStamp,
-    bool IsDeleted = false);
+    bool IsDeleted);
 
 public record InternalDocumentVersionDto(
     long InternalId,
@@ -21,7 +21,7 @@ public record InternalDocumentVersionDto(
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
     string? ConcurrencyStamp,
-    bool IsDeleted = false) : DocumentVersionDto(
+    bool IsDeleted) : DocumentVersionDto(
         ExternalId,
         ContentHash,
         DocumentId,

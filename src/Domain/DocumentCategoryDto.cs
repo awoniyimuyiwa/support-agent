@@ -7,7 +7,7 @@ public record DocumentCategoryDto(
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
     string? ConcurrencyStamp,
-    bool IsDeleted = false);
+    bool IsDeleted);
 
 public record InternalDocumentCategoryDto(
     long InternalId,
@@ -17,7 +17,7 @@ public record InternalDocumentCategoryDto(
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
     string? ConcurrencyStamp,
-    bool IsDeleted = false) : DocumentCategoryDto(
+    bool IsDeleted) : DocumentCategoryDto(
         Id: ExternalId,
         Description,
         Name,

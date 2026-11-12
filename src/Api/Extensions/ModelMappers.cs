@@ -32,7 +32,8 @@ public static class ModelMappers
                 model.Name,
                 model.CreatedAt,
                 model.UpdatedAt,
-                model.ConcurrencyStamp);
+                model.ConcurrencyStamp,
+                model.IsDeleted);
     }
 
     extension(DocumentCategorySyncRequest model)
@@ -56,7 +57,8 @@ public static class ModelMappers
                 model.Name,
                 model.CreatedAt,
                 model.UpdatedAt,
-                model.ConcurrencyStamp);
+                model.ConcurrencyStamp,
+                model.IsDeleted);
     }
 
     extension(DocumentSyncRequest model)
@@ -144,7 +146,8 @@ public static class ModelMappers
                 model.Title,
                 model.CreatedAt,
                 model.UpdatedAt,
-                model.ConcurrencyStamp);
+                model.ConcurrencyStamp,
+                model.IsDeleted);
     }
 
     extension(FullTicketSyncRequestItem model)
@@ -158,7 +161,8 @@ public static class ModelMappers
                 model.Title,
                 model.CreatedAt,
                 model.UpdatedAt,
-                model.ConcurrencyStamp);
+                model.ConcurrencyStamp,
+                model.IsDeleted);
     }
 
     extension(TicketSyncRequest model)
