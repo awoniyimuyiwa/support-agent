@@ -33,6 +33,7 @@ using Medallion.Threading.Postgres;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Caching.StackExchangeRedis;
 using OllamaSharp;
@@ -603,6 +604,35 @@ app.Use(async (context, next) =>
 
 app.UseRequestTimeouts();
 app.UseAuthentication();
+
+app.Use(async (context, next) =>
+{
+    // The browser sent the auth cookie, yet authentication failed (e.g., Redis session was cleared)
+    if (context.Request.Cookies.ContainsKey(Api.Contracts.Constants.AuthCookieName)
+        && context.User.Identity?.IsAuthenticated != true)
+    {
+        if (context.Request.Path.Value?.EndsWith("/auth/antiforgery-token", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            context.Response.Cookies.Delete(
+                Api.Contracts.Constants.AuthCookieName,
+                new CookieOptions
+                {
+                    Path = "/",
+                    Secure = true,
+                    HttpOnly = true,
+                    SameSite = SameSiteMode.Strict
+                });
+        }
+        else
+        {
+            var signInManager = context.RequestServices.GetRequiredService<SignInManager<ApplicationUser>>();
+            await signInManager.SignOutAsync();
+        }
+    }
+
+    await next();
+});
+
 app.UseAuthorization();
 app.UseRateLimiter();
 

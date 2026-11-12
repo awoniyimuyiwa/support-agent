@@ -1,4 +1,3 @@
-using Domain.Shared;
 using Microsoft.EntityFrameworkCore;
 
 namespace Web.Client.Data;

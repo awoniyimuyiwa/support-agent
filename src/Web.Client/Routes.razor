@@ -2,8 +2,9 @@
 @using Web.Client.Components
 @using Web.Client.Layout
 
-@inject IJSRuntime JS
 @inject ApiClient ApiClient
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JS
 @inject ILogger<Routes> Logger
 
 @*
@@ -15,7 +16,7 @@
   while ensuring that AuthorizeView components across all assemblies cleanly resolve user security contexts.
 *@
 <Router AppAssembly="typeof(Routes).Assembly">
-    <Found Context="routeData">        
+    <Found Context="routeData">
         <ErrorBoundary @ref="_errorBoundary">
             <ChildContent>
                 <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(MainLayout)">
@@ -31,7 +32,7 @@
                     </Authorizing>
                 </AuthorizeRouteView>
             </ChildContent>
-            
+
             <ErrorContent Context="exception">
                 <!-- Rendered for any unhandled component/action crash -->
                 <LayoutView Layout="typeof(MainLayout)">
@@ -94,10 +95,13 @@
         try
         {
             var token = await JS.InvokeAsync<string>("getAntiforgeryToken");
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var isAuthenticated = authState.User.Identity?.IsAuthenticated ?? false;
 
-            if (string.IsNullOrWhiteSpace(token))
+            // Refresh if missing OR if the user is anonymous (which catches stale user-bound tokens after a 401/session eviction)
+            if (string.IsNullOrWhiteSpace(token) || !isAuthenticated)
             {
-                Logger.LogInformation("Antiforgery cookie missing on WASM initialization. Seeding fresh tokens from API...");
+                Logger.LogInformation("Seeding fresh antiforgery tokens from API...");
                 using var _ = await ApiClient.GetAntiforgeryToken();
             }
         }
