@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using SqliteWasmHelper;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Security.Cryptography;
 using System.Text.Json;
 using Web.Client.Data;
 using Web.Client.Extensions;
@@ -79,26 +80,22 @@ public class SyncService(
 
     public Task<bool> CreateDocumentVersions(
         Guid? batchId = null,
-        CancellationToken cancellationToken = default) => Create<DocumentVersion>(
-        creationApiCall: (entities, activeBatchId, ct) =>
-        {
-            var requestItems = entities
+        CancellationToken cancellationToken = default)
+        => Create<DocumentVersion, CreateDocumentVersionRequest>(
+            mapToRequest: entities => new CreateDocumentVersionRequest([.. entities
+                .OrderBy(x => x.Id) // Ensure deterministic order
                 .Select(x => new CreateDocumentVersionRequestItem(
                     x.Id,
                     x.ContentHash,
                     x.DocumentId,
                     x.StoredFile!.ServerFileId!.Value,
                     x.StoredFile.Type,
-                    new DateTimeOffset(x.CreatedAt)))
-                .ToList(); 
+                    new DateTimeOffset(x.CreatedAt)))]),
 
-            return apiClient.CreateDocumentVersions(
-                new CreateDocumentVersionRequest(requestItems),
-                activeBatchId, // Pass the batch id
-                ct);
-        },
-        batchId,
-        cancellationToken);
+            apiCall: apiClient.CreateDocumentVersions,
+
+            batchId,
+            cancellationToken);
 
     public Task FetchDocumentDeltas(CancellationToken cancellationToken = default)
         => FetchDeltas(
@@ -237,46 +234,44 @@ public class SyncService(
         bool hasEntities = false;
 
         // Open short-lived read context to safely inspect tracking constraints
-        using (var dbContext = await dbFactory.CreateDbContextAsync())
+        using var dbContext = await dbFactory.CreateDbContextAsync();
+        batch = await dbContext.SyncBatches.FindAsync([id], cancellationToken);
+        if (batch is null) { return; }
+
+        try
         {
-            batch = await dbContext.SyncBatches.FindAsync([id], cancellationToken);
-            if (batch is null) { return; }
+            entityIds = JsonSerializer.Deserialize<List<Guid>>(batch.SerializedEntityIds) ?? [];
+        }
+        catch (JsonException)
+        {
+            dbContext.SyncBatches.Remove(batch);
+            await dbContext.SaveChangesAsync(cancellationToken);
+            return;
+        }
 
-            try
-            {
-                entityIds = JsonSerializer.Deserialize<List<Guid>>(batch.SerializedEntityIds) ?? [];
-            }
-            catch (JsonException)
-            {
-                dbContext.SyncBatches.Remove(batch);
-                await dbContext.SaveChangesAsync(cancellationToken);
-                return;
-            }
+        if (entityIds.Count == 0)
+        {
+            dbContext.SyncBatches.Remove(batch);
+            await dbContext.SaveChangesAsync(cancellationToken);
+            return;
+        }
 
-            if (entityIds.Count == 0)
-            {
-                dbContext.SyncBatches.Remove(batch);
-                await dbContext.SaveChangesAsync(cancellationToken);
-                return;
-            }
+        // Check if matching records still reside locally before routing
+        if (batch.EntityTypeName == typeof(Document).Name)
+            hasEntities = await dbContext.Documents.AnyAsync(x => entityIds.Contains(x.Id), cancellationToken);
+        else if (batch.EntityTypeName == typeof(DocumentCategory).Name)
+            hasEntities = await dbContext.DocumentCategories.AnyAsync(x => entityIds.Contains(x.Id), cancellationToken);
+        else if (batch.EntityTypeName == typeof(DocumentVersion).Name)
+            hasEntities = await dbContext.DocumentVersions.AnyAsync(x => entityIds.Contains(x.Id), cancellationToken);
+        else if (batch.EntityTypeName == typeof(Ticket).Name)
+            hasEntities = await dbContext.Tickets.AnyAsync(x => entityIds.Contains(x.Id), cancellationToken);
 
-            // Check if matching records still reside locally before routing
-            if (batch.EntityTypeName == typeof(Document).Name)
-                hasEntities = await dbContext.Documents.AnyAsync(x => entityIds.Contains(x.Id), cancellationToken);
-            else if (batch.EntityTypeName == typeof(DocumentCategory).Name)
-                hasEntities = await dbContext.DocumentCategories.AnyAsync(x => entityIds.Contains(x.Id), cancellationToken);
-            else if (batch.EntityTypeName == typeof(DocumentVersion).Name)
-                hasEntities = await dbContext.DocumentVersions.AnyAsync(x => entityIds.Contains(x.Id), cancellationToken);
-            else if (batch.EntityTypeName == typeof(Ticket).Name)
-                hasEntities = await dbContext.Tickets.AnyAsync(x => entityIds.Contains(x.Id), cancellationToken);
-
-            if (!hasEntities)
-            {
-                dbContext.SyncBatches.Remove(batch);
-                await dbContext.SaveChangesAsync(cancellationToken);
-                return;
-            }
-        } // Read context is fully closed and disposed here
+        if (!hasEntities)
+        {
+            dbContext.SyncBatches.Remove(batch);
+            await dbContext.SaveChangesAsync(cancellationToken);
+            return;
+        }
 
         if (batch.Type == SyncType.UploadFiles)
         {
@@ -302,42 +297,26 @@ public class SyncService(
 
             if (batch.EntityTypeName == typeof(Document).Name)
             {
-                var existingDocuments = await syncContext.Documents
-                    .Where(x => entityIds.Contains(x.Id))
-                    .ToListAsync(cancellationToken);
                 await SyncDocuments(
                     batch.Id,
-                    existingDocuments, 
                     cancellationToken);
             }
             else if (batch.EntityTypeName == typeof(DocumentCategory).Name)
             {
-                var existingCategories = await syncContext.DocumentCategories
-                    .Where(x => entityIds.Contains(x.Id))
-                    .ToListAsync(cancellationToken);
                 await SyncDocumentCategories(
-                    batch.Id, 
-                    existingCategories, 
+                    batch.Id,
                     cancellationToken);
             }
             else if (batch.EntityTypeName == typeof(DocumentVersion).Name)
             {
-                var existingVersions = await syncContext.DocumentVersions
-                    .Where(x => entityIds.Contains(x.Id))
-                    .ToListAsync(cancellationToken);
                 await SyncDocumentVersions(
                     batch.Id, 
-                    existingVersions, 
                     cancellationToken);
             }
             else if (batch.EntityTypeName == typeof(Ticket).Name)
             {
-                var existingTickets = await syncContext.Tickets
-                    .Where(x => entityIds.Contains(x.Id))
-                    .ToListAsync(cancellationToken);
                 await SyncTickets(
-                    batch.Id, 
-                    existingTickets, 
+                    batch.Id,
                     cancellationToken);
             }
         }
@@ -353,79 +332,54 @@ public class SyncService(
         }
     }
 
-    public async Task<IReadOnlyCollection<(TEntity Client, TEntity Server)>> Sync<TEntity>(
-        Func<ApplicationDbContext, DbSet<TEntity>> dbSetSelector,
-
-        Func<Guid,
-           IReadOnlyCollection<TEntity>,
-           CancellationToken,
-           Task<IReadOnlyCollection<(TEntity Client, TEntity Server)>>> syncRunner,
-
-        CancellationToken cancellationToken = default) where TEntity : class, ISyncableEntity
-    {
-        var batchId = Guid.NewGuid();
-
-        var entities = await CreateSyncBatch(
-            dbSetSelector,
-            batchId,
-            SyncType.Sync,
-            cancellationToken);
-        if (entities.Count == 0) { return []; }
-
-        return await syncRunner(
-            batchId,
-            entities,
-            cancellationToken);
-    }
-
     public Task<IReadOnlyCollection<(
         Document Client,
         Document Server)>> SyncDocuments(
-        Guid batchId,
-        IReadOnlyCollection<Document> documents,
+        Guid? batchId = null,
         CancellationToken cancellationToken = default)
         => Sync(
             batchId,
-            documents,
-            apiCall: d => apiClient.SyncDocuments(
-               new DocumentSyncRequest([.. d.Select(x =>  new DocumentSyncItem(
+
+            mapToRequest: items => new DocumentSyncRequest([.. items
+                .OrderBy(x => x.Id) // Ensure deterministic order
+                .Select(x => new DocumentSyncItem(
                     x.Id,
                     x.DocumentCategoryId,
                     x.Name,
                     x.CreatedAt,
                     x.UpdatedAt,
                     x.ConcurrencyStamp,
-                    x.IsDeleted
-                ))]),
-               batchId,
-               cancellationToken),
+                    x.IsDeleted))]),
+
+            apiCall: apiClient.SyncDocuments,
 
             mapToEntity: (DocumentSyncItem d) => new Document
             {
-               Id = d.Id,
-               DocumentCategoryId = d.CategoryId,
-               Name = d.Name,
-               CreatedAt = d.CreatedAt.DateTime,
-               UpdatedAt = d.UpdatedAt.DateTime,
-               ConcurrencyStamp = d.ConcurrencyStamp,
-               IsDeleted = d.IsDeleted,
-               SyncStatus = SyncStatus.Synced
-           },
 
-           dbSetSelector: ctx => ctx.Documents,
-           cancellationToken);
+                Id = d.Id,
+                DocumentCategoryId = d.CategoryId,
+                Name = d.Name,
+                CreatedAt = d.CreatedAt.DateTime,
+                UpdatedAt = d.UpdatedAt.DateTime,
+                ConcurrencyStamp = d.ConcurrencyStamp,
+                IsDeleted = d.IsDeleted,
+                SyncStatus = SyncStatus.Synced
+            },
+
+            dbSetSelector: ctx => ctx.Documents,
+            cancellationToken);
 
     public Task<IReadOnlyCollection<(
         DocumentCategory Client,
         DocumentCategory Server)>> SyncDocumentCategories(
-        Guid batchId,
-        IReadOnlyCollection<DocumentCategory> documentCategories,
+        Guid? batchId = null,
         CancellationToken cancellationToken = default)
         => Sync(
             batchId,
-            documentCategories,
-            apiCall: dc => apiClient.SyncDocumentCategories(
-               new DocumentCategorySyncRequest([.. dc.Select(x =>  new DocumentCategorySyncItem(
+
+            mapToRequest: items => new DocumentCategorySyncRequest([.. items
+                .OrderBy(x => x.Id)
+                .Select(x => new DocumentCategorySyncItem(
                     x.Id,
                     x.Description,
                     x.Name,
@@ -433,9 +387,9 @@ public class SyncService(
                     x.UpdatedAt,
                     x.ConcurrencyStamp,
                     x.IsDeleted
-                ))]),
-               batchId,
-               cancellationToken),
+            ))]),
+  
+            apiCall: apiClient.SyncDocumentCategories,
 
             mapToEntity: (DocumentCategorySyncItem dc) => new DocumentCategory
             {
@@ -455,22 +409,22 @@ public class SyncService(
     public async Task<IReadOnlyCollection<(
         DocumentVersion Client,
         DocumentVersion Server)>> SyncDocumentVersions(
-        Guid batchId,
-        IReadOnlyCollection<DocumentVersion> documentVersions,
+        Guid? batchId = null,
         CancellationToken cancellationToken = default)
     { 
         return await Sync(
             batchId,
-            documentVersions,
-            apiCall: dc => apiClient.SyncDocumentVersions(
-               new DocumentVersionSyncRequest([.. dc.Select(x =>  new DocumentVersionSyncRequestItem(
+
+            mapToRequest: items => new DocumentVersionSyncRequest([.. items
+                .OrderBy(x => x.Id) // Ensure deterministic order
+                .Select(x => new DocumentVersionSyncRequestItem(
                     x.Id,
                     x.UpdatedAt,
                     x.ConcurrencyStamp,
                     x.IsDeleted
-                ))]),
-               batchId,
-               cancellationToken),
+            ))]),
+
+            apiCall: apiClient.SyncDocumentVersions,
 
             mapToEntity: (DocumentVersionSyncItem dv) => new DocumentVersion
             {
@@ -488,8 +442,7 @@ public class SyncService(
     }
 
     public async Task<IReadOnlyCollection<(Ticket Client, Ticket Server)>> SyncTickets(
-        Guid batchId,
-        IReadOnlyCollection<Ticket> tickets,
+        Guid? batchId = null,
         CancellationToken cancellationToken = default)
     {
         var authState = await authStateProvider.GetAuthenticationStateAsync();
@@ -499,34 +452,36 @@ public class SyncService(
 
         var conflicts = await Sync(
             batchId,
-            tickets,
 
-            apiCall: t => isAdmin ?
-            apiClient.SyncAllTickets(
-                new FullTicketSyncRequest([.. t.Select(x => new FullTicketSyncRequestItem(
-                    x.Id, 
-                    x.Description, 
-                    x.Priority, 
-                    x.Status, 
-                    x.Title, 
-                    x.CreatedAt, 
-                    x.UpdatedAt, 
-                    x.ConcurrencyStamp, 
-                    x.IsDeleted))]),
-                batchId,
-                cancellationToken)
-            :
-            apiClient.SyncTickets(
-                new TicketSyncRequest([.. t.Select(x => new TicketSyncRequestItem(
+            mapToRequest: items => isAdmin ? (object)new FullTicketSyncRequest([.. items
+                .OrderBy(x => x.Id)
+                .Select(x => new FullTicketSyncRequestItem(
                     x.Id,
-                    x.Description, 
+                    x.Description,
+                    x.Priority,
+                    x.Status,
                     x.Title,
-                    x.CreatedAt, 
-                    x.UpdatedAt, 
-                    x.ConcurrencyStamp, 
+                    x.CreatedAt,
+                    x.UpdatedAt,
+                    x.ConcurrencyStamp,
+                    x.IsDeleted))])
+            : new TicketSyncRequest([.. items
+                .OrderBy(x => x.Id)
+                .Select(x => new TicketSyncRequestItem(
+                    x.Id,
+                    x.Description,
+                    x.Title,
+                    x.CreatedAt,
+                    x.UpdatedAt,
+                    x.ConcurrencyStamp,
                     x.IsDeleted))]),
-                batchId,
-                cancellationToken),
+
+            apiCall: (request, idempotencyKey, ct) => request switch
+            {
+                FullTicketSyncRequest fullReq => apiClient.SyncAllTickets(fullReq, idempotencyKey, ct),
+                TicketSyncRequest standardReq => apiClient.SyncTickets(standardReq, idempotencyKey, ct),
+                _ => throw new InvalidOperationException($"Unsupported request type: {request.GetType().Name}")
+            },
 
             mapToEntity: (TicketSyncResponseItem t) => new Ticket
             {
@@ -543,7 +498,7 @@ public class SyncService(
                 SyncStatus = SyncStatus.Synced
             },
 
-            dbSetSelector: ctx => isAdmin ? ctx.Tickets : ctx.Tickets.Where(t => t.CreatedByUserId == userId) ,
+            dbSetSelector: ctx => isAdmin ? ctx.Tickets : ctx.Tickets.Where(t => t.CreatedByUserId == userId),
             cancellationToken);
 
         // For Non-Admins, process and strip out specific server-side conflicts
@@ -609,65 +564,29 @@ public class SyncService(
             batchId,
             cancellationToken);
 
-    private async Task<bool> Create<TEntity>(
-        Func<List<TEntity>,
-            Guid,
-            CancellationToken,
-            Task<HttpResponseMessage>> creationApiCall,
-
+    private async Task<bool> Create<TEntity, TRequest>(
+        Func<IReadOnlyCollection<TEntity>, TRequest> mapToRequest,
+        Func<TRequest, Guid, CancellationToken, Task<HttpResponseMessage>> apiCall,
         Guid? batchId,
-
         CancellationToken cancellationToken) where TEntity : class, IHasFile
     {
-        var entityTypeName = typeof(TEntity).Name;
-        var activeBatchId = Guid.NewGuid();
-        List<TEntity> pendingItems = [];
-
-        if (batchId.HasValue && batchId.Value != Guid.Empty)
-        {
-            using var checkContext = await dbFactory.CreateDbContextAsync();
-
-            var existingBatch = await checkContext.SyncBatches
-                .AsNoTracking()
-                .FirstOrDefaultAsync(x => x.Id == batchId.Value
-                                          && x.EntityTypeName == entityTypeName
-                                          && x.Type == SyncType.Create,
-                                     cancellationToken);
-
-            if (existingBatch is null) { return false; }
-
-            activeBatchId = batchId.Value;
-            var trackedIds = JsonSerializer.Deserialize<List<Guid>>(existingBatch.SerializedEntityIds) ?? [];
-
-            if (trackedIds.Count > 0)
-            {
-                pendingItems = await checkContext.Set<TEntity>()
-                    .Include(x => x.StoredFile)
-                    .Where(x => trackedIds.Contains(x.Id))
-                    .AsNoTracking()
-                    .ToListAsync(cancellationToken);
-            }
-        }
-        else
-        {
-            activeBatchId = Guid.NewGuid();
-            pendingItems = await CreateSyncBatch(
-                ctx => ctx.Set<TEntity>()
+        var (activeBatchId, pendingItems) = await GetOrCreateSyncBatch(
+            querySelector: ctx => ctx.Set<TEntity>()
                 .Include(x => x.StoredFile)
                 .Where(x => x.SyncStatus == SyncStatus.PendingInsert
                             && x.StoredFile != null
                             && x.StoredFile.ServerFileId != null
-                            && string.IsNullOrWhiteSpace(x.SerializedErrors))
-                .OrderBy(x => x.Id),
-                activeBatchId,
-                SyncType.Create,
-                cancellationToken);
-        }
-
+                            && string.IsNullOrWhiteSpace(x.SerializedErrors)),
+            mapToRequest,
+            SyncType.Create,
+            batchId,
+            cancellationToken);
         if (pendingItems.Count == 0) { return false; }
 
-        using var response = await creationApiCall(
-            pendingItems,
+        var request = mapToRequest(pendingItems);
+
+        using var response = await apiCall(
+            request,
             activeBatchId,
             cancellationToken);
 
@@ -693,7 +612,6 @@ public class SyncService(
                     if (indexErrors.Count > 0)
                     {
                         totalMappedItemErrors += indexErrors.Count;
-                        // Attach to the tracker and update the serialized errors property in-memory
                         var targetEntity = context.Set<TEntity>().Attach(pendingItems[i]).Entity;
                         targetEntity.SerializedErrors = JsonSerializer.Serialize(indexErrors);
                     }
@@ -897,10 +815,11 @@ public class SyncService(
 
     private async Task<IReadOnlyCollection<(TEntity Client, TEntity Server)>> Sync<
         TEntity,
+        TRequest,
         TSyncableModel>(
-        Guid batchId,
-        IReadOnlyCollection<TEntity> entities,
-        Func<IReadOnlyCollection<TEntity>, Task<HttpResponseMessage>> apiCall,
+        Guid? batchId,
+        Func<IReadOnlyCollection<TEntity>, TRequest> mapToRequest,
+        Func<TRequest, Guid, CancellationToken, Task<HttpResponseMessage>> apiCall,
         Func<TSyncableModel, TEntity> mapToEntity,
         Func<ApplicationDbContext, IQueryable<TEntity>> dbSetSelector,
         CancellationToken cancellationToken)
@@ -908,7 +827,21 @@ public class SyncService(
         where TEntity : class, ISyncableEntity
         where TSyncableModel : class, ISyncableModel
     {
-        using var response = await apiCall(entities);
+        var (activeBatchId, entities) = await GetOrCreateSyncBatch(
+            dbSetSelector,
+            mapToRequest,
+            SyncType.Sync,
+            batchId,
+            cancellationToken);
+        if (entities.Count == 0) { return []; }
+
+        var request = mapToRequest(entities);
+        using var response = await apiCall(request, activeBatchId, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);    
+            logger.LogWarning("Sync API call failed with: {ErrorBody}", errorBody);
+        }
         response.EnsureSuccessStatusCode();
 
         var result = await response.Content
@@ -939,7 +872,7 @@ public class SyncService(
         }
 
         var batchToDelete = await context.SyncBatches
-            .FirstOrDefaultAsync(b => b.Id == batchId, cancellationToken);
+            .FirstOrDefaultAsync(b => b.Id == activeBatchId, cancellationToken);
         if (batchToDelete is not null)
         {
             context.SyncBatches.Remove(batchToDelete);
@@ -961,72 +894,47 @@ public class SyncService(
     }
 
     private async Task<bool> UploadFiles<TEntity>(
-       Func<CreateUploadUrlRequest,
-           Guid,
-           CancellationToken,
-           Task<HttpResponseMessage>> apiCall,
+        Func<CreateUploadUrlRequest,
+            Guid,
+            CancellationToken,
+            Task<HttpResponseMessage>> apiCall,
 
-       Func<ApplicationDbContext,
-           DbSet<TEntity>> dbSetSelector,
+        Func<ApplicationDbContext,
+            DbSet<TEntity>> dbSetSelector,
 
-       Guid? batchId,
+        Guid? batchId,
 
-       CancellationToken cancellationToken) where TEntity : class, IHasFile
+        CancellationToken cancellationToken) where TEntity : class, IHasFile
     {
-        var activeBatchId = Guid.NewGuid();
-        var entityTypeName = typeof(TEntity).Name;
-        List<TEntity> pendingItems = [];
+        static CreateUploadUrlRequest MapToRequest(IReadOnlyCollection<TEntity> items) =>
+            new([.. items
+            .OrderBy(e => e.Id)
+            .Select(e => new CreateUploadUrlRequestItem(e.StoredFile!.Type, e.Id))]);
 
-        if (batchId.HasValue && batchId.Value != Guid.Empty)
-        {
-            using var checkContext = await dbFactory.CreateDbContextAsync();
-
-            var existingBatch = await checkContext.SyncBatches
-                .AsNoTracking()
-                .FirstOrDefaultAsync(x => x.Id == batchId.Value
-                                          && x.EntityTypeName == entityTypeName
-                                          && x.Type == SyncType.UploadFiles,
-                                          cancellationToken);
-            
-            if (existingBatch is null) { return false; }
-
-            activeBatchId = batchId.Value;
-            var trackedIds = JsonSerializer.Deserialize<List<Guid>>(existingBatch.SerializedEntityIds) ?? [];
-
-            if (trackedIds.Count > 0)
-            {
-                pendingItems = await dbSetSelector(checkContext)
-                    .Where(e => trackedIds.Contains(e.Id))
-                    .AsNoTracking()
-                    .ToListAsync(cancellationToken);
-            }
-        }
-        else
-        {
-            pendingItems = await CreateSyncBatch(
-                ctx => dbSetSelector(ctx)
+        var (activeBatchId, pendingItems) = await GetOrCreateSyncBatch(
+            querySelector: ctx => dbSetSelector(ctx)
+                .Include(e => e.StoredFile)
                 .Where(e => e.SyncStatus == SyncStatus.PendingInsert
                             && e.StoredFile != null
-                            && e.StoredFile.ServerFileId == null)
-                .OrderBy(x => x.Id),
-                activeBatchId,
-                SyncType.UploadFiles,
-                cancellationToken);
-        }
+                            && e.StoredFile.ServerFileId == null),
+            mapToRequest: MapToRequest,
+            type: SyncType.UploadFiles,
+            existingBatchId: batchId,
+            cancellationToken: cancellationToken);
 
         if (pendingItems.Count == 0) { return false; }
 
-        var requestItems = pendingItems
-            .Select(e => new CreateUploadUrlRequestItem(e.StoredFile!.Type, e.Id))
-            .ToList();
+        var request = MapToRequest(pendingItems);
+
         // If process crashes mid flight and a sync batch is resumed
         // the server will send the same storage urls and file ids it sent previously
         // the server's cache duration will be approximately that of the TTL of the urls
         using var response = await apiCall(
-            new CreateUploadUrlRequest(requestItems),
+            request,
             activeBatchId,
             cancellationToken);
         response.EnsureSuccessStatusCode();
+
         var apiResult = await response.Content.ReadFromJsonAsync<UploadUrlsResponse>(cancellationToken);
 
         var updatesMap = new Dictionary<Guid, Guid>();
@@ -1036,13 +944,15 @@ public class SyncService(
         {
             if (entity.StoredFile != null && apiResult!.Map.TryGetValue(entity.Id, out var responseItem))
             {
-                updatesMap[entity.StoredFile.Id] = responseItem.FileId;
+                var storedFile = entity.StoredFile;
+                var uploadUrl = responseItem.Url;
+                updatesMap[storedFile.Id] = responseItem.FileId;
 
-                uploadTasks.Add(Task.Run(async () =>
+                uploadTasks.Add(((Func<Task>)(async () =>
                 {
-                    using var blobRequest = new HttpRequestMessage(HttpMethod.Put, responseItem.Url);
-                    blobRequest.Content = new ByteArrayContent(entity.StoredFile.Bytes);
-                    blobRequest.Content.Headers.ContentType = new MediaTypeHeaderValue(entity.StoredFile.Type);
+                    using var blobRequest = new HttpRequestMessage(HttpMethod.Put, uploadUrl);
+                    blobRequest.Content = new ByteArrayContent(storedFile.Bytes);
+                    blobRequest.Content.Headers.ContentType = new MediaTypeHeaderValue(storedFile.Type);
                     blobRequest.Headers.Add("x-ms-blob-type", "BlockBlob");
 
                     using var blobResponse = await apiClient.HttpClient.SendAsync(
@@ -1051,9 +961,10 @@ public class SyncService(
                         cancellationToken);
 
                     blobResponse.EnsureSuccessStatusCode();
-                }, cancellationToken));
+                }))());
             }
         }
+
         await Task.WhenAll(uploadTasks);
 
         using var context = await dbFactory.CreateDbContextAsync();
@@ -1085,8 +996,63 @@ public class SyncService(
         return pendingItems.Count >= Api.Contracts.Constants.MaxLengthOfList;
     }
 
-    private async Task<List<TEntity>> CreateSyncBatch<TEntity>(
+    private async Task<(Guid BatchId, List<TEntity> Entities)> GetOrCreateSyncBatch<TEntity, TRequest>(
         Func<ApplicationDbContext, IQueryable<TEntity>> querySelector,
+        Func<IReadOnlyCollection<TEntity>, TRequest> mapToRequest,
+        SyncType type,
+        Guid? existingBatchId,
+        CancellationToken cancellationToken) where TEntity : class, ISyncableEntity
+    {
+        if (existingBatchId is Guid batchId && batchId != Guid.Empty)
+        {
+            using var context = await dbFactory.CreateDbContextAsync();
+            var entityTypeName = typeof(TEntity).Name;
+
+            var existingBatch = await context.SyncBatches
+                .FirstOrDefaultAsync(
+                    b => b.Id == batchId
+                         && b.EntityTypeName == entityTypeName
+                         && b.Type == type,
+                    cancellationToken);
+
+            if (existingBatch is not null)
+            {
+                var entityIds = JsonSerializer.Deserialize<List<Guid>>(existingBatch.SerializedEntityIds) ?? [];
+
+                var entities = await querySelector(context)
+                    .Where(x => entityIds.Contains(x.Id))
+                    .OrderBy(x => x.Id)
+                    .ToListAsync(cancellationToken);
+
+                if (entities.Count == entityIds.Count
+                    && ComputeRequestHash(mapToRequest(entities)) == existingBatch.Hash)
+                {
+                    return (batchId, entities);
+                }
+
+                logger.LogWarning(
+                    "Discarding stranded synchronization batch {BatchId} because payload hash changed.",
+                    existingBatch.Id);
+
+                context.SyncBatches.Remove(existingBatch);
+                await context.SaveChangesAsync(cancellationToken);
+            }
+        }
+
+        var newBatchId = Guid.NewGuid();
+        var newEntities = await CreateSyncBatch(
+            querySelector,
+            mapToRequest,
+            newBatchId,
+            type,
+            cancellationToken);
+
+        return (newBatchId, newEntities);
+    }
+
+    private async Task<List<TEntity>> CreateSyncBatch<TEntity, TRequest>(
+        Func<ApplicationDbContext, IQueryable<TEntity>> querySelector,
+        Func<IReadOnlyCollection<TEntity>, TRequest> mapToRequest,
         Guid batchId,
         SyncType type,
         CancellationToken cancellationToken) where TEntity : class, ISyncableEntity
@@ -1100,15 +1066,18 @@ public class SyncService(
         }
 
         var entities = await query
+            .OrderBy(x => x.Id)
             .Take(Api.Contracts.Constants.MaxLengthOfList)
             .ToListAsync(cancellationToken);
-
         if (entities.Count == 0) { return entities; }
+
+        var request = mapToRequest(entities);
 
         var batch = new SyncBatch
         {
             Id = batchId,
             EntityTypeName = typeof(TEntity).Name,
+            Hash = ComputeRequestHash(request),
             SerializedEntityIds = JsonSerializer.Serialize(entities.Select(x => x.Id).ToList()),
             Type = type,
             CreatedAt = timeProvider.GetUtcNow().DateTime
@@ -1118,5 +1087,13 @@ public class SyncService(
         await context.SaveChangesAsync(cancellationToken);
 
         return entities;
+    }
+
+    private static string ComputeRequestHash<TRequest>(TRequest request)
+    {
+        var jsonBytes = JsonSerializer.SerializeToUtf8Bytes(request);
+        var hashBytes = SHA256.HashData(jsonBytes);
+
+        return Convert.ToBase64String(hashBytes);
     }
 }

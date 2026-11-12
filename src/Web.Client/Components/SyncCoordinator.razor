@@ -401,28 +401,18 @@
             _isSyncing = true;
             StateHasChanged();
 
-            Guid? strandedBatchId = null;
-            using (var context = await DbContextFactory.CreateDbContextAsync())
+            using var context = await DbContextFactory.CreateDbContextAsync();
+            var interruptedBatch = await context.SyncBatches        
+                .OrderBy(x => x.CreatedAt)       
+                .FirstOrDefaultAsync(_cts?.Token ?? default);
+            if (interruptedBatch is not null)
             {
-                var interruptedBatch = await context.SyncBatches
-                    .OrderBy(x => x.CreatedAt)
-                    .FirstOrDefaultAsync(_cts?.Token ?? default);
-
-                if (interruptedBatch is not null)
-                {
-                    strandedBatchId = interruptedBatch.Id;
-                    Logger.LogWarning("Resuming stranded synchronization batch: {BatchId}", strandedBatchId);
-                }
-            }
-
-            if (strandedBatchId.HasValue)
-            {
-                await SyncService.ResumeBatch(strandedBatchId.Value, _cts?.Token ?? default);
+                Logger.LogWarning("Resuming stranded synchronization batch: {BatchId}", interruptedBatch.Id);
+                await SyncService.ResumeBatch(interruptedBatch.Id, _cts?.Token ?? default);
                 return;
             }
-
+            
             bool hasMoreData = true;
-
             // Keep execution sweeping through database pages until no records remain pending
             while (hasMoreData && _isOnline && !_isDisposed)
             {
@@ -481,9 +471,8 @@
 
     private async Task<bool> RunSync(CancellationToken cancellationToken)
     {
-        var ticketConflicts = await SyncService.Sync<Ticket>(
-            ctx => ctx.Tickets,
-            SyncService.SyncTickets,
+        var ticketConflicts = await SyncService.SyncTickets(
+            batchId: null,
             cancellationToken);
 
         if (ticketConflicts.Any())
@@ -504,9 +493,8 @@
     {
         var entitiesProcessed = false;
 
-        var documentCategoryConflicts = await SyncService.Sync<DocumentCategory>(
-            ctx => ctx.DocumentCategories,
-            SyncService.SyncDocumentCategories,
+        var documentCategoryConflicts = await SyncService.SyncDocumentCategories(
+            batchId: null,
             cancellationToken);
         if (documentCategoryConflicts.Any())
         {
@@ -516,9 +504,8 @@
         }
         await SyncService.FetchDocumentCategoryDeltas(cancellationToken);
 
-        var documentConflicts = await SyncService.Sync<Document>(
-            ctx => ctx.Documents,
-            SyncService.SyncDocuments,
+        var documentConflicts = await SyncService.SyncDocuments(
+            batchId: null,
             cancellationToken);
         if (documentConflicts.Any())
         {
@@ -539,10 +526,9 @@
             cancellationToken);
         entitiesProcessed |= versionsCreated;
 
-        var versionConflicts = await SyncService.Sync<DocumentVersion>(
-                ctx => ctx.DocumentVersions,
-                SyncService.SyncDocumentVersions,
-                cancellationToken);
+        var versionConflicts = await SyncService.SyncDocumentVersions(
+            batchId: null,
+            cancellationToken);
         if (versionConflicts.Any())
         {
             _documentVersionConflicts = versionConflicts;

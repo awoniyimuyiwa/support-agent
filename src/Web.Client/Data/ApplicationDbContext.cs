@@ -53,17 +53,18 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             b.HasIndex(dc => new { dc.Name, dc.IsDeleted }).IsUnique();
         });
 
-        modelBuilder.Entity<Ticket>(b =>
+        modelBuilder.Entity<SyncBatch>(entity =>
         {
-            // Force 1-byte storage to shrink row size and save browser RAM
-            b.Property(t => t.Priority).HasConversion<byte>();
-            b.Property(t => t.Status).HasConversion<byte>();
+            entity.Property(e => e.EntityTypeName)
+                .HasMaxLength(100)
+                .IsRequired();
 
-            // Single Index on Priority ONLY (Covers searches where ONLY Priority is picked)
-            b.HasIndex(t => t.Priority);
+            entity.Property(e => e.Hash)
+                .HasMaxLength(64)
+                .IsRequired();
 
-            // Composite Index (Covers BOTH selected, and covers searches where ONLY Status is picked)
-            b.HasIndex(t => new { t.Status, t.Priority });
+            entity.Property(e => e.SerializedEntityIds)
+                .IsRequired();
         });
 
         modelBuilder.Entity<SyncMetadata>(b =>
@@ -79,6 +80,21 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
              .IsUnique()
              .HasFilter("[UserId] IS NULL");
         });
+
+        modelBuilder.Entity<Ticket>(b =>
+        {
+            // Force 1-byte storage to shrink row size and save browser RAM
+            b.Property(t => t.Priority).HasConversion<byte>();
+            b.Property(t => t.Status).HasConversion<byte>();
+
+            // Single Index on Priority ONLY (Covers searches where ONLY Priority is picked)
+            b.HasIndex(t => t.Priority);
+
+            // Composite Index (Covers BOTH selected, and covers searches where ONLY Status is picked)
+            b.HasIndex(t => new { t.Status, t.Priority });
+        });
+
+       
 
         // Map the tracking SyncStatus enum values as direct integers or bytes
         var syncableEntityTypes = modelBuilder.Model.GetEntityTypes()
