@@ -420,25 +420,53 @@
         using var context = await DbContextFactory.CreateDbContextAsync();
         var ticket = await context.Tickets.FindAsync(_ticketToDelete.Id);
 
-        if (ticket is not null)
+        if (ticket is null
+            || ticket.IsDeleted
+            || ticket.ConcurrencyStamp != _ticketToDelete.ConcurrencyStamp
+            || ticket.LocalConcurrencyStamp != _ticketToDelete.LocalConcurrencyStamp)
         {
-            if (!_isAdmin && ticket.Status != TicketStatus.Open) return;
+            _deleteErrorMessage = Web.Client.Constants.ConcurrencyErrorMessage;
+            StateHasChanged();
+            return;
+        }
 
+        if (!_isAdmin && ticket.Status != TicketStatus.Open)
+        {
+            _showDeleteModal = false;
+            _ticketToDelete = null;
+            _deleteErrorMessage = null;
+            return;
+        }
+
+        // Ensure OriginalValue is the pre-flight stamp
+        var entry = context.Entry(ticket);
+        entry.Property(nameof(ISyncableEntity.ConcurrencyStamp)).OriginalValue = _ticketToDelete.ConcurrencyStamp;
+        entry.Property(nameof(ISyncableEntity.LocalConcurrencyStamp)).OriginalValue = _ticketToDelete.LocalConcurrencyStamp;
+
+        if (ticket.SyncStatus == SyncStatus.PendingInsert)
+        {
+            // Never created on the server: remove locally (with OriginalValue stamps enforced in WHERE)
+            context.Tickets.Remove(ticket);
+        }
+        else
+        {
             ticket.IsDeleted = true;
             ticket.SyncStatus = SyncStatus.PendingDelete;
             ticket.UpdatedAt = now;
-            ticket.ConcurrencyStamp = _ticketToDelete.ConcurrencyStamp;
+            ticket.SerializedErrors = null;
+            // Rotate to new stamp
+            ticket.LocalConcurrencyStamp = Guid.NewGuid().ToString();
+        }
 
-            try
-            {
-                await context.SaveChangesAsync();
-            }
-            catch (DbUpdateConcurrencyException)
-            {
-                _deleteErrorMessage = Web.Client.Constants.ConcurrencyErrorMessage;
-                StateHasChanged();
-                return;
-            }
+        try
+        {
+            await context.SaveChangesAsync();
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            _deleteErrorMessage = Web.Client.Constants.ConcurrencyErrorMessage;
+            StateHasChanged();
+            return;
         }
 
         _showDeleteModal = false;
@@ -509,7 +537,8 @@
             Description = ticket.Description,
             Priority = ticket.Priority,
             Status = ticket.Status,
-            ConcurrencyStamp = ticket.ConcurrencyStamp
+            ConcurrencyStamp = ticket.ConcurrencyStamp,
+            LocalConcurrencyStamp = ticket.LocalConcurrencyStamp
         };
 
         _editContext = new EditContext(_inputModel);
@@ -556,41 +585,53 @@
         if (_ticketEditedId.HasValue)
         {
             var existing = await context.Tickets.FindAsync(_ticketEditedId.Value);
-            if (existing is not null)
+
+            if (existing is null
+                || existing.IsDeleted
+                || existing.ConcurrencyStamp != _inputModel.ConcurrencyStamp
+                || existing.LocalConcurrencyStamp != _inputModel.LocalConcurrencyStamp)
             {
-                if (!_isAdmin && existing.Status != TicketStatus.Open)
-                {
-                    CloseUpsertModal();
-                    return;
-                }
+                ShowConcurrencyError();
+                return;
+            }
 
-                existing.Description = _inputModel.Description.Trim();
-                existing.Title = _inputModel.Title.Trim();
-                existing.UpdatedAt = now;
+            if (!_isAdmin && existing.Status != TicketStatus.Open)
+            {
+                CloseUpsertModal();
+                return;
+            }
 
-                // Clear rejection parameters to re-queue back into synchronization loops
-                existing.SerializedErrors = null;
+            // Ensure OriginalValue is the pre-flight stamp and rotate to a new stamp
+            var entry = context.Entry(existing);
+            entry.Property(nameof(ISyncableEntity.ConcurrencyStamp)).OriginalValue = _inputModel.ConcurrencyStamp;
+            entry.Property(nameof(ISyncableEntity.LocalConcurrencyStamp)).OriginalValue = _inputModel.LocalConcurrencyStamp;
+            existing.LocalConcurrencyStamp = Guid.NewGuid().ToString();
+
+            existing.Description = _inputModel.Description.Trim();
+            existing.Title = _inputModel.Title.Trim();
+            existing.UpdatedAt = now;
+            existing.SerializedErrors = null;
+
+            // Keep PendingInsert if it hasn't been created on the server yet
+            if (existing.SyncStatus != SyncStatus.PendingInsert)
+            {
                 existing.SyncStatus = SyncStatus.PendingUpdate;
+            }
 
-                if (_isAdmin)
-                {
-                    existing.Priority = _inputModel.Priority;
-                    existing.Status = _inputModel.Status;
-                }
+            if (_isAdmin)
+            {
+                existing.Priority = _inputModel.Priority;
+                existing.Status = _inputModel.Status;
+            }
 
-                existing.ConcurrencyStamp = _inputModel.ConcurrencyStamp;
-                try
-                {
-                    await context.SaveChangesAsync();
-                }
-                catch (DbUpdateConcurrencyException)
-                {
-                    var modelIdentifier = new FieldIdentifier(_inputModel, string.Empty);
-                    _messageStore!.Clear(modelIdentifier);
-                    _messageStore!.Add(modelIdentifier, Web.Client.Constants.ConcurrencyErrorMessage);
-                    _editContext.NotifyValidationStateChanged();
-                    return;
-                }
+            try
+            {
+                await context.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                ShowConcurrencyError();
+                return;
             }
         }
         else
@@ -606,6 +647,7 @@
                 CreatedAt = now,
                 UpdatedAt = now,
                 IsDeleted = false,
+                LocalConcurrencyStamp = Guid.NewGuid().ToString(),
                 SyncStatus = SyncStatus.PendingInsert
             };
 
@@ -613,7 +655,7 @@
             await context.SaveChangesAsync();
         }
 
-        CloseUpsertModal(); 
+        CloseUpsertModal();
         _filter.Reset();
         await ApplyFilter();
     }
@@ -622,6 +664,14 @@
     {
         _filter.PageNumber = 1;
         await ApplyFilter();
+    }
+
+    private void ShowConcurrencyError()
+    {
+        var modelIdentifier = new FieldIdentifier(_inputModel, string.Empty);
+        _messageStore!.Clear(modelIdentifier);
+        _messageStore!.Add(modelIdentifier, Web.Client.Constants.ConcurrencyErrorMessage);
+        _editContext!.NotifyValidationStateChanged();
     }
 
     private async Task ToggleSortDirection()
@@ -689,5 +739,4 @@
         _editContext = null;
         _messageStore = null;
     }
-
 }

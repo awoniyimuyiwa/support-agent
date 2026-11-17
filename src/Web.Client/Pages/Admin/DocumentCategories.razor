@@ -235,7 +235,7 @@
                     <button type="button" class="btn btn-outline-secondary fw-semibold px-4" @onclick="CancelDelete">
                         Cancel
                     </button>
-                    <button type="button" class="btn btn-danger fw-semibold px-4 d-flex align-items-center gap-2" 
+                    <button type="button" class="btn btn-danger fw-semibold px-4 d-flex align-items-center gap-2"
                             @onclick="ConfirmDelete"
                             disabled="@(!string.IsNullOrWhiteSpace(_deleteErrorMessage))">
                         <span class="bi bi-trash3-fill"></span> Delete
@@ -305,23 +305,44 @@
         using var context = await DbContextFactory.CreateDbContextAsync();
         var category = await context.DocumentCategories.FindAsync(_categoryToDelete.Id);
 
-        if (category is not null)
+        if (category is null
+            || category.IsDeleted
+            || category.ConcurrencyStamp != _categoryToDelete.ConcurrencyStamp
+            || category.LocalConcurrencyStamp != _categoryToDelete.LocalConcurrencyStamp)
+        {
+            _deleteErrorMessage = Web.Client.Constants.ConcurrencyErrorMessage;
+            StateHasChanged();
+            return;
+        }
+
+        // Ensure OriginalValue is the pre-flight stamp
+        var entry = context.Entry(category);
+        entry.Property(nameof(ISyncableEntity.ConcurrencyStamp)).OriginalValue = _categoryToDelete.ConcurrencyStamp;
+        entry.Property(nameof(ISyncableEntity.LocalConcurrencyStamp)).OriginalValue = _categoryToDelete.LocalConcurrencyStamp;
+
+        if (category.SyncStatus == SyncStatus.PendingInsert)
+        {
+            // Never existed on the server: remove locally (with OriginalValue stamps enforced in WHERE)
+            context.DocumentCategories.Remove(category);
+        }
+        else
         {
             category.IsDeleted = true;
             category.SyncStatus = SyncStatus.PendingDelete;
             category.UpdatedAt = now;
-            category.ConcurrencyStamp = _categoryToDelete.ConcurrencyStamp;
+            // Rotate to a new stamp
+            category.LocalConcurrencyStamp = Guid.NewGuid().ToString();
+        }
 
-            try
-            {
-                await context.SaveChangesAsync();
-            }
-            catch (DbUpdateConcurrencyException)
-            {
-                _deleteErrorMessage = Web.Client.Constants.ConcurrencyErrorMessage;
-                StateHasChanged();
-                return;
-            }
+        try
+        {
+            await context.SaveChangesAsync();
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            _deleteErrorMessage = Web.Client.Constants.ConcurrencyErrorMessage;
+            StateHasChanged();
+            return;
         }
 
         _showDeleteModal = false;
@@ -389,7 +410,8 @@
         {
             Name = category.Name,
             Description = category.Description,
-            ConcurrencyStamp = category.ConcurrencyStamp
+            ConcurrencyStamp = category.ConcurrencyStamp,
+            LocalConcurrencyStamp = category.LocalConcurrencyStamp
         };
 
         _editContext = new EditContext(_inputModel);
@@ -427,10 +449,15 @@
     {
         if (_editContext is null || !_editContext.Validate()) return;
 
+        var trimmedName = _inputModel.Name.Trim();
+        var trimmedDescription = string.IsNullOrWhiteSpace(_inputModel.Description)
+            ? null
+            : _inputModel.Description.Trim();
+
         using var context = await DbContextFactory.CreateDbContextAsync();
 
         var nameExists = await context.DocumentCategories
-            .AnyAsync(dc => dc.Name == _inputModel.Name
+            .AnyAsync(dc => dc.Name == trimmedName
                         && !dc.IsDeleted
                         && dc.Id != _categoryEditedId);
         if (nameExists)
@@ -447,27 +474,41 @@
         if (_categoryEditedId.HasValue)
         {
             var existingCategory = await context.DocumentCategories.FindAsync(_categoryEditedId.Value);
-            if (existingCategory is not null)
-            {
-                existingCategory.Name = _inputModel.Name.Trim();
-                existingCategory.Description = string.IsNullOrWhiteSpace(_inputModel.Description) ? null : _inputModel.Description.Trim();
-                existingCategory.UpdatedAt = now;
-                existingCategory.SerializedErrors = null;
-                existingCategory.SyncStatus = SyncStatus.PendingUpdate;
-                existingCategory.ConcurrencyStamp = _inputModel.ConcurrencyStamp;
 
-                try
-                {
-                    await context.SaveChangesAsync();
-                }
-                catch (DbUpdateConcurrencyException)
-                {
-                    var modelIdentifier = new FieldIdentifier(_inputModel, string.Empty);
-                    _messageStore!.Clear(modelIdentifier);
-                    _messageStore!.Add(modelIdentifier, Web.Client.Constants.ConcurrencyErrorMessage);
-                    _editContext.NotifyValidationStateChanged();
-                    return;
-                }
+            if (existingCategory is null
+                || existingCategory.IsDeleted
+                || existingCategory.ConcurrencyStamp != _inputModel.ConcurrencyStamp
+                || existingCategory.LocalConcurrencyStamp != _inputModel.LocalConcurrencyStamp)
+            {
+                ShowConcurrencyError();
+                return;
+            }
+
+            // Ensure OriginalValue is the pre-flight stamp and rotate to a new stamp
+            var entry = context.Entry(existingCategory);
+            entry.Property(nameof(ISyncableEntity.ConcurrencyStamp)).OriginalValue = _inputModel.ConcurrencyStamp;
+            entry.Property(nameof(ISyncableEntity.LocalConcurrencyStamp)).OriginalValue = _inputModel.LocalConcurrencyStamp;
+            existingCategory.LocalConcurrencyStamp = Guid.NewGuid().ToString();
+
+            existingCategory.Name = trimmedName;
+            existingCategory.Description = trimmedDescription;
+            existingCategory.UpdatedAt = now;
+            existingCategory.SerializedErrors = null;
+
+            // Keep PendingInsert if it hasn't been created on the server yet; otherwise mark PendingUpdate
+            if (existingCategory.SyncStatus != SyncStatus.PendingInsert)
+            {
+                existingCategory.SyncStatus = SyncStatus.PendingUpdate;
+            }
+
+            try
+            {
+                await context.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                ShowConcurrencyError();
+                return;
             }
         }
         else
@@ -475,11 +516,12 @@
             var newCategory = new DocumentCategory
             {
                 Id = Guid.NewGuid(),
-                Name = _inputModel.Name.Trim(),
-                Description = string.IsNullOrWhiteSpace(_inputModel.Description) ? null : _inputModel.Description.Trim(),
+                Name = trimmedName,
+                Description = trimmedDescription,
                 CreatedAt = now,
                 UpdatedAt = now,
                 IsDeleted = false,
+                LocalConcurrencyStamp = Guid.NewGuid().ToString(),
                 SyncStatus = SyncStatus.PendingInsert
             };
             context.DocumentCategories.Add(newCategory);
@@ -495,6 +537,14 @@
     {
         _filter.PageNumber = 1;
         await ApplyFilter();
+    }
+
+    private void ShowConcurrencyError()
+    {
+        var modelIdentifier = new FieldIdentifier(_inputModel, string.Empty);
+        _messageStore!.Clear(modelIdentifier);
+        _messageStore!.Add(modelIdentifier, Web.Client.Constants.ConcurrencyErrorMessage);
+        _editContext!.NotifyValidationStateChanged();
     }
 
     private async Task ToggleSortDirection()

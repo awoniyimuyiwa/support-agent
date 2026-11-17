@@ -14,6 +14,8 @@ public class DocumentCategory : ISyncableEntity
 
     public string? ConcurrencyStamp { get; set; }
 
+    public string? LocalConcurrencyStamp { get; set; }
+
     public bool IsDeleted { get; set; }
 
     public string? SerializedErrors { get; set; }

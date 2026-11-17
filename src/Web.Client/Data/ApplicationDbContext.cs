@@ -93,8 +93,6 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             b.HasIndex(t => new { t.Status, t.Priority });
         });
 
-       
-
         // Map the tracking SyncStatus enum values as direct integers or bytes
         var syncableEntityTypes = modelBuilder.Model.GetEntityTypes()
             .Where(et => typeof(ISyncableEntity).IsAssignableFrom(et.ClrType))
@@ -114,6 +112,10 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             entityBuilder.Property(nameof(ISyncableEntity.ConcurrencyStamp))
                 .IsConcurrencyToken()
                 .HasMaxLength(Domain.Shared.Constants.StringMaxLength);
+
+            entityBuilder.Property(nameof(ISyncableEntity.LocalConcurrencyStamp))
+               .IsConcurrencyToken()
+               .HasMaxLength(Domain.Shared.Constants.StringMaxLength);
         }
     }
 }

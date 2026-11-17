@@ -113,15 +113,15 @@ public class SyncService(
                 clientRecord.IsDeleted = serverRecord.IsDeleted;
             },
 
-            createFunc: (DocumentSyncItem dc) => new Document
+            createFunc: (DocumentSyncItem d) => new Document
             {
-                Id = dc.Id,
-                DocumentCategoryId = dc.CategoryId,
-                Name = dc.Name,
-                CreatedAt = dc.CreatedAt.DateTime,
-                UpdatedAt = dc.UpdatedAt.DateTime,
-                ConcurrencyStamp = dc.ConcurrencyStamp,
-                IsDeleted = dc.IsDeleted,
+                Id = d.Id,
+                DocumentCategoryId = d.CategoryId,
+                Name = d.Name,
+                CreatedAt = d.CreatedAt.DateTime,
+                UpdatedAt = d.UpdatedAt.DateTime,
+                ConcurrencyStamp = d.ConcurrencyStamp,
+                IsDeleted = d.IsDeleted,
                 SyncStatus = SyncStatus.Synced
             },
 
@@ -528,8 +528,15 @@ public class SyncService(
                 {
                     var serverTicket = conflict.Server;
 
-                    if (clientMap.TryGetValue(serverTicket.Id, out var client))
+                    if (clientMap.TryGetValue(serverTicket.Id, out var client)
+                         && client.LocalConcurrencyStamp == conflict.Client.LocalConcurrencyStamp)
                     {
+                        // Ensure OriginalValue is the pre-flight stamp and rotate to a new stamp
+                        var stampProp = context.Entry(client)
+                            .Property(nameof(ISyncableEntity.LocalConcurrencyStamp));
+                        stampProp.OriginalValue = conflict.Client.LocalConcurrencyStamp;
+                        client.LocalConcurrencyStamp = Guid.NewGuid().ToString();
+
                         client.Description = serverTicket.Description;
                         client.Priority = serverTicket.Priority;
                         client.Status = serverTicket.Status;
@@ -583,6 +590,8 @@ public class SyncService(
             cancellationToken);
         if (pendingItems.Count == 0) { return false; }
 
+        var currentStamps = pendingItems.ToDictionary(x => x.Id, x => x.LocalConcurrencyStamp);
+
         var request = mapToRequest(pendingItems);
 
         using var response = await apiCall(
@@ -613,6 +622,12 @@ public class SyncService(
                     {
                         totalMappedItemErrors += indexErrors.Count;
                         var targetEntity = context.Set<TEntity>().Attach(pendingItems[i]).Entity;
+
+                        // Ensure OriginalValue is the pre-flight stamp and rotate to a new stamp
+                        var stampProp = context.Entry(targetEntity).Property(nameof(ISyncableEntity.LocalConcurrencyStamp));
+                        stampProp.OriginalValue = pendingItems[i].LocalConcurrencyStamp;
+                        targetEntity.LocalConcurrencyStamp = Guid.NewGuid().ToString();
+
                         targetEntity.SerializedErrors = JsonSerializer.Serialize(indexErrors);
                     }
                 }
@@ -634,18 +649,38 @@ public class SyncService(
                 .Where(x => itemIds.Contains(x.Id))
                 .ToListAsync(cancellationToken);
 
+            var syncedFileIds = new List<Guid>();
+
             foreach (var item in itemsToUpdate)
             {
-                item.SyncStatus = SyncStatus.Synced;
+                if (currentStamps.TryGetValue(item.Id, out var sentStamp)
+                    && item.LocalConcurrencyStamp == sentStamp)
+                {
+                    // Ensure OriginalValue is the pre-flight stamp and rotate to a new stamp
+                    var stampProp = context.Entry(item).Property(nameof(ISyncableEntity.LocalConcurrencyStamp));
+                    stampProp.OriginalValue = sentStamp;
+                    item.LocalConcurrencyStamp = Guid.NewGuid().ToString();
+
+                    item.SyncStatus = SyncStatus.Synced;
+
+                    // Only delete the local StoredFile if this item wasn't modified mid-flight
+                    if (item.StoredFileId is Guid fileId)
+                    {
+                        syncedFileIds.Add(fileId);
+                    }
+                }
             }
 
-            var filesToDelete = await context.StoredFiles
-                .Where(x => fileIds.Contains(x.Id))
-                .ToListAsync(cancellationToken);
-
-            if (filesToDelete.Count > 0)
+            if (syncedFileIds.Count > 0)
             {
-                context.StoredFiles.RemoveRange(filesToDelete);
+                var filesToDelete = await context.StoredFiles
+                    .Where(x => syncedFileIds.Contains(x.Id))
+                    .ToListAsync(cancellationToken);
+
+                if (filesToDelete.Count > 0)
+                {
+                    context.StoredFiles.RemoveRange(filesToDelete);
+                }
             }
         }
 
@@ -668,6 +703,7 @@ public class SyncService(
         Func<TSyncableModel, TEntity> createFunc,
         CancellationToken cancellationToken,
         Func<TEntity, string>? nameSelector = null)
+
         where TEntity : class, ISyncableEntity
         where TSyncableModel : class, ISyncableModel
     {
@@ -719,13 +755,11 @@ public class SyncService(
                              || x.SyncStatus == SyncStatus.PendingUpdate)
                     .ToListAsync(cancellationToken);
 
-                // Group by clean, trimmed names to build the lookup dictionary
                 foreach (var record in unsyncedRecords)
                 {
                     var name = nameSelector(record)?.Trim();
                     if (!string.IsNullOrWhiteSpace(name))
                     {
-                        // If duplicate names exist locally, keep the first one encountered
                         localUnsyncedNames.TryAdd(name, record);
                     }
                 }
@@ -735,35 +769,32 @@ public class SyncService(
             {
                 if (clientRecords.TryGetValue(item.Id, out var clientRecord))
                 {
-                    if (clientRecord.SyncStatus == SyncStatus.PendingUpdate) { continue; }
-
                     if (item.IsDeleted)
                     {
                         clientRecord.IsDeleted = true;
                         clientRecord.SyncStatus = SyncStatus.Synced;
-                        dbSet.Update(clientRecord);
+                        clientRecord.LocalConcurrencyStamp = Guid.NewGuid().ToString();
                         continue;
                     }
 
+                    if (clientRecord.SyncStatus != SyncStatus.Synced) { continue; }
+
                     if (nameSelector is not null)
                     {
-                        // Temporarily build a mockup or read the target value directly from the delta item payload.
-                        // Since mapToEntity/createFunc builds a proper typed entity instance from the delta model:
                         var serverMockup = createFunc(item);
-                        var incomingServerName = nameSelector(serverMockup);
+                        var incomingServerName = nameSelector(serverMockup)?.Trim();
 
-                        if (!string.IsNullOrWhiteSpace(incomingServerName) 
-                            && localUnsyncedNames.TryGetValue(incomingServerName, out var conflictingRecord))
+                        if (!string.IsNullOrWhiteSpace(incomingServerName)
+                            && localUnsyncedNames.TryGetValue(incomingServerName, out var conflictingRecord)
+                            && conflictingRecord.Id != item.Id)
                         {
-                            if (conflictingRecord.Id != item.Id)
-                            {
-                                continue;
-                            }
+                            continue;
                         }
                     }
 
                     updateAction(clientRecord, item);
-                    dbSet.Update(clientRecord);
+                    clientRecord.SyncStatus = SyncStatus.Synced;
+                    clientRecord.LocalConcurrencyStamp = Guid.NewGuid().ToString();
                 }
                 else
                 {
@@ -773,14 +804,16 @@ public class SyncService(
 
                     if (nameSelector is not null)
                     {
-                        var newRecordName = nameSelector(newRecord);
-                        if (!string.IsNullOrWhiteSpace(newRecordName) 
+                        var newRecordName = nameSelector(newRecord)?.Trim();
+                        if (!string.IsNullOrWhiteSpace(newRecordName)
                             && localUnsyncedNames.ContainsKey(newRecordName))
                         {
                             continue;
                         }
                     }
 
+                    newRecord.SyncStatus = SyncStatus.Synced;
+                    newRecord.LocalConcurrencyStamp = Guid.NewGuid().ToString();
                     dbSet.Add(newRecord);
                 }
             }
@@ -798,7 +831,7 @@ public class SyncService(
                     UserId = isAdmin ? null : userId
                 };
                 writeContext.SyncMetadatas.Add(metadata);
-                logger.LogInformation("Added new metadata");
+                logger.LogInformation("Added new sync metadata");
             }
 
             metadata.Cursor = result.Next;
@@ -835,6 +868,8 @@ public class SyncService(
             cancellationToken);
         if (entities.Count == 0) { return []; }
 
+        var currentStamps = entities.ToDictionary(e => e.Id, e => e.LocalConcurrencyStamp);
+
         var request = mapToRequest(entities);
         using var response = await apiCall(request, activeBatchId, cancellationToken);
         if (!response.IsSuccessStatusCode)
@@ -867,7 +902,18 @@ public class SyncService(
                 .ToListAsync(cancellationToken);
             foreach (var record in recordsToUpdate)
             {
-                record.SyncStatus = SyncStatus.Synced;
+                if (currentStamps.TryGetValue(record.Id, out var currentStamp)
+                    && record.LocalConcurrencyStamp == currentStamp)
+                {
+                    // Ensure OriginalValue is the pre-flight stamp and rotate to a new stamp
+                    // Force EF Core to emit: WHERE Id = @id AND LocalConcurrencyStamp = @currentStamp
+                    var entry = context.Entry(record);
+                    var stampProp = entry.Property(nameof(ISyncableEntity.LocalConcurrencyStamp));
+                    stampProp.OriginalValue = currentStamp;
+                    record.LocalConcurrencyStamp = Guid.NewGuid().ToString();
+
+                    record.SyncStatus = SyncStatus.Synced;
+                }
             }
         }
 

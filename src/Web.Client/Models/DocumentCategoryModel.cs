@@ -12,4 +12,6 @@ public class DocumentCategoryModel
     public string Name { get; set; } = string.Empty;
 
     public string? ConcurrencyStamp { get; set; }
+
+    public string? LocalConcurrencyStamp { get; set; }
 }

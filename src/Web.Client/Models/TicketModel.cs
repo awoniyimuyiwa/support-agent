@@ -18,4 +18,6 @@ public class TicketModel
     public string Title { get; set; } = string.Empty;
 
     public string? ConcurrencyStamp { get; set; }
+
+    public string? LocalConcurrencyStamp { get; set; }
 }

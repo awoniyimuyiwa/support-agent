@@ -293,27 +293,48 @@
             .Include(dv => dv.StoredFile)
             .FirstOrDefaultAsync(v => v.Id == _versionToDelete.Id);
 
-        if (version is not null)
+        if (version is null
+            || version.IsDeleted
+            || version.ConcurrencyStamp != _versionToDelete.ConcurrencyStamp
+            || version.LocalConcurrencyStamp != _versionToDelete.LocalConcurrencyStamp)
+        {
+            _deleteErrorMessage = Web.Client.Constants.ConcurrencyErrorMessage;
+            StateHasChanged();
+            return;
+        }
+
+        var entry = context.Entry(version);
+        entry.Property(nameof(ISyncableEntity.ConcurrencyStamp)).OriginalValue = _versionToDelete.ConcurrencyStamp;
+        entry.Property(nameof(ISyncableEntity.LocalConcurrencyStamp)).OriginalValue = _versionToDelete.LocalConcurrencyStamp;
+
+        if (version.StoredFile is not null)
+        {
+            context.StoredFiles.Remove(version.StoredFile);
+        }
+
+        if (version.SyncStatus == SyncStatus.PendingInsert)
+        {
+            // Never created on the server: remove locally (with OriginalValue stamps enforced in WHERE)
+            context.DocumentVersions.Remove(version);
+        }
+        else
         {
             version.IsDeleted = true;
             version.SyncStatus = SyncStatus.PendingDelete;
             version.UpdatedAt = now;
-            version.ConcurrencyStamp = _versionToDelete.ConcurrencyStamp;
-            if (version.StoredFile is not null)
-            {
-                context.StoredFiles.Remove(version.StoredFile);
-            }
+            version.SerializedErrors = null;
+            version.LocalConcurrencyStamp = Guid.NewGuid().ToString();
+        }
 
-            try
-            {
-                 await context.SaveChangesAsync();
-            }
-            catch (DbUpdateConcurrencyException)
-            {
-                _deleteErrorMessage = Web.Client.Constants.ConcurrencyErrorMessage;
-                StateHasChanged();
-                return;
-            }
+        try
+        {
+            await context.SaveChangesAsync();
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            _deleteErrorMessage = Web.Client.Constants.ConcurrencyErrorMessage;
+            StateHasChanged();
+            return;
         }
 
         _showDeleteModal = false;
@@ -321,6 +342,7 @@
         _deleteErrorMessage = null;
         await LoadVersions();
     }
+
 
     private void EditRejectedVersion(DocumentVersion version)
     {
@@ -403,7 +425,16 @@
             var version = await context.DocumentVersions
                 .Include(v => v.StoredFile)
                 .FirstOrDefaultAsync(v => v.Id == _versionToEdit.Id);
-            if (version is null) return;
+            if (version is null
+                || version.ConcurrencyStamp != _versionToEdit.ConcurrencyStamp
+                || version.LocalConcurrencyStamp != _versionToEdit.LocalConcurrencyStamp)
+            {
+                _editErrorMessage = Web.Client.Constants.ConcurrencyErrorMessage;
+                StateHasChanged();
+                return;
+            }
+
+            var oldStoredFile = version.StoredFile;
 
             var error = await _selectedBrowserFile.ComputeAndUpdateVersion(
                 context.DocumentVersions,
@@ -415,8 +446,19 @@
                 return;
             }
 
+            if (oldStoredFile is not null)
+            {
+                context.StoredFiles.Remove(oldStoredFile);
+            }
+
+            // Ensure OriginalValue is the pre-flight stamp and rotate to a new stamp
+            var entry = context.Entry(version);
+            entry.Property(nameof(ISyncableEntity.ConcurrencyStamp)).OriginalValue = _versionToEdit.ConcurrencyStamp;
+            // new stamp is already set in ComputeAndUpdateVersion
+            entry.Property(nameof(ISyncableEntity.LocalConcurrencyStamp)).OriginalValue = _versionToEdit.LocalConcurrencyStamp;
+            
             version.UpdatedAt = now;
-            version.ConcurrencyStamp = _versionToEdit.ConcurrencyStamp;
+           
             try
             {
                  await context.SaveChangesAsync();

@@ -73,16 +73,21 @@ public static class BrowserFile
                 return "Duplicate version detected. This file content matches that of another existing version.";
             }
 
-            var storedFile = existingVersion.StoredFile ?? new StoredFile { Id = Guid.NewGuid() };
-            storedFile.Bytes = fileBytes;
-            storedFile.Type = mimeType;
-            // Mark as not uploaded
-            storedFile.ServerFileId = null;
+            // Always allocate a brand-new StoredFile row with a new Guid Id
+            var newStoredFile = new StoredFile
+            {
+                Id = Guid.NewGuid(),
+                Bytes = fileBytes,
+                Type = mimeType,
+                ServerFileId = null
+            };
 
             existingVersion.ContentHash = hash;
-            existingVersion.StoredFile = storedFile;
+            existingVersion.StoredFile = newStoredFile;
+            existingVersion.StoredFileId = newStoredFile.Id;
 
-            // Re-queue back into the synchronization loop
+            // Rotate LocalConcurrencyStamp and re-queue back into the sync loop
+            existingVersion.LocalConcurrencyStamp = Guid.NewGuid().ToString();
             existingVersion.SerializedErrors = null;
             existingVersion.SyncStatus = SyncStatus.PendingInsert;
 
