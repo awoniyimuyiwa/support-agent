@@ -1,7 +1,7 @@
 {
   "_comment": "Opt-in to the modern .NET 10 Microsoft.Testing.Platform runner to prevent legacy VSTest engine runtime errors during testing.",
   "sdk": {
-    "version": "10.0.x",
+    "version": "10.0.100",
     "rollForward": "latestFeature"
   },
   "test": {
