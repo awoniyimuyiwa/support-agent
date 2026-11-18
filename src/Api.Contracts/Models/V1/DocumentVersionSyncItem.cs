@@ -7,7 +7,7 @@ public record DocumentVersionSyncItem(
      DateTimeOffset CreatedAt,
      DateTimeOffset UpdatedAt,
      string? ConcurrencyStamp,
-     bool IsDeleted = false) : DocumentVersionSyncRequestItem(
+     bool IsDeleted) : DocumentVersionSyncRequestItem(
          Id,
          UpdatedAt, 
          ConcurrencyStamp, 
