@@ -25,22 +25,12 @@ public class IdempotencyFilterTests
     private const string UserId = "user-123";
     private static readonly string LockKey = $"{IdempotencyFilter.CachePrefix}{IdempotencyFilter.LockPrefix}{UserId}:{IdempotencyKey}";
     private static readonly string RecordKey = $"{IdempotencyFilter.CachePrefix}{IdempotencyFilter.RecordPrefix}{UserId}:{IdempotencyKey}";
-   
+
     [Fact]
     public async Task InvokeAsync_NoAttribute_ReturnsNext()
     {
         // Arrange
-        var (context, 
-            cache, 
-            db, 
-            options) = GetSetup();
-        
-        var filter = new IdempotencyFilter(
-            cache.Object, 
-            db.Object, 
-            options,
-            null,
-            null);
+        var (context, _, _, filter) = GetSetup();
         var nextCalled = false;
 
         // Act
@@ -58,17 +48,7 @@ public class IdempotencyFilterTests
     public async Task InvokeAsync_MissingHeader_ReturnsBadRequest()
     {
         // Arrange
-        var (context, 
-            cache, 
-            db, 
-            options) = GetSetup(hc => hc.SetEndpoint(CreateEndpoint()));
-        
-        var filter = new IdempotencyFilter(
-            cache.Object, 
-            db.Object, 
-            options,
-            null,
-            null);
+        var (context, _, _, filter) = GetSetup(hc => hc.SetEndpoint(CreateEndpoint()));
 
         // Act
         var result = await filter.InvokeAsync(context, _ => ValueTask.FromResult<object?>(null));
@@ -76,7 +56,7 @@ public class IdempotencyFilterTests
         // Assert
         var badRequest = Assert.IsType<BadRequestObjectResult>(result);
         Assert.Equal(
-            IdempotencyFilter.MissingHeaderErrorMessage, 
+            IdempotencyFilter.MissingHeaderErrorMessage,
             badRequest.Value!);
     }
 
@@ -84,26 +64,16 @@ public class IdempotencyFilterTests
     public async Task InvokeAsync_UserNotAuthenticated_ReturnsUnauthorized()
     {
         // Arrange
-        var (context,
-            cache, 
-            db, 
-            options) = GetSetup(hc => 
-            {
-                hc.SetEndpoint(CreateEndpoint());
-                hc.Request.Headers[Contracts.Constants.IdempotencyKeyHeaderName] = IdempotencyKey;
-                // No User set = Unauthenticated
-            });
-
-        var filter = new IdempotencyFilter(
-            cache.Object, 
-            db.Object, 
-            options,
-            null,
-            null);
+        var (context, _, _, filter) = GetSetup(hc =>
+        {
+            hc.SetEndpoint(CreateEndpoint());
+            hc.Request.Headers[Contracts.Constants.IdempotencyKeyHeaderName] = IdempotencyKey;
+            // No User set = Unauthenticated
+        });
 
         // Act
         var result = await filter.InvokeAsync(
-            context, 
+            context,
             _ => ValueTask.FromResult<object?>(null));
 
         // Assert
@@ -114,22 +84,19 @@ public class IdempotencyFilterTests
     public async Task InvokeAsync_CacheHitWithCorrectHash_ReturnsCachedResult()
     {
         // Arrange
-        var (context, 
-            cache, 
-            db, 
-            options) = GetSetup(hc => 
-            {
-                hc.SetEndpoint(CreateEndpoint());
-                hc.Request.Headers[Contracts.Constants.IdempotencyKeyHeaderName] = IdempotencyKey;
-                hc.User = CreateUser();
-            });
+        var (context, cache, _, filter) = GetSetup(hc =>
+        {
+            hc.SetEndpoint(CreateEndpoint());
+            hc.Request.Headers[Contracts.Constants.IdempotencyKeyHeaderName] = IdempotencyKey;
+            hc.User = CreateUser();
+        });
 
         var body = "{\"data\":\"test\"}";
         var requestHash = Convert.ToBase64String(SHA256.HashData("{}"u8.ToArray()));
-       
+
         var record = new IdempotencyRecord(
-            body, 
-            requestHash, 
+            body,
+            requestHash,
             200,
             []);
         var serialized = JsonSerializer.Serialize(record);
@@ -139,16 +106,9 @@ public class IdempotencyFilterTests
             default))
              .ReturnsAsync(Encoding.UTF8.GetBytes(serialized));
 
-        var filter = new IdempotencyFilter(
-            cache.Object, 
-            db.Object, 
-            options,
-            null,
-            null);
-
         // Act
         var result = await filter.InvokeAsync(
-            context, 
+            context,
             _ => ValueTask.FromResult<object?>(null));
 
         // Assert
@@ -162,15 +122,12 @@ public class IdempotencyFilterTests
     public async Task InvokeAsync_CacheHitWithDifferentHash_ReturnsBadRequest()
     {
         // Arrange
-        var (context,
-            cache,
-            db,
-            options) = GetSetup(hc =>
-            {
-                hc.SetEndpoint(CreateEndpoint());
-                hc.Request.Headers[Contracts.Constants.IdempotencyKeyHeaderName] = IdempotencyKey;
-                hc.User = CreateUser();
-            });
+        var (context, cache, _, filter) = GetSetup(hc =>
+        {
+            hc.SetEndpoint(CreateEndpoint());
+            hc.Request.Headers[Contracts.Constants.IdempotencyKeyHeaderName] = IdempotencyKey;
+            hc.User = CreateUser();
+        });
 
         var record = new IdempotencyRecord(
             "{}",
@@ -181,13 +138,6 @@ public class IdempotencyFilterTests
             RecordKey,
             default))
              .ReturnsAsync(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(record)));
-
-        var filter = new IdempotencyFilter(
-            cache.Object,
-            db.Object,
-            options,
-            null,
-            null);
 
         // Act
         var result = await filter.InvokeAsync(
@@ -205,39 +155,29 @@ public class IdempotencyFilterTests
     public async Task InvokeAsync_LockAcquisitionFails_ReturnsConflict()
     {
         // Arrange
-        var (context, 
-            cache, 
-            db, 
-            options) = GetSetup(hc => 
-            {
-                hc.SetEndpoint(CreateEndpoint());
-                hc.Request.Headers[Contracts.Constants.IdempotencyKeyHeaderName] = IdempotencyKey;
-                hc.User = CreateUser();
-            });
+        var (context, _, db, filter) = GetSetup(hc =>
+        {
+            hc.SetEndpoint(CreateEndpoint());
+            hc.Request.Headers[Contracts.Constants.IdempotencyKeyHeaderName] = IdempotencyKey;
+            hc.User = CreateUser();
+        });
 
         db.Setup(d => d.LockTakeAsync(
-            LockKey, 
+            LockKey,
             It.IsAny<RedisValue>(),
-            It.IsAny<TimeSpan>(), 
+            It.IsAny<TimeSpan>(),
             CommandFlags.None))
           .ReturnsAsync(false);
 
-        var filter = new IdempotencyFilter(
-            cache.Object, 
-            db.Object, 
-            options,
-            null,
-            null);
-
         // Act
         var result = await filter.InvokeAsync(
-            context, 
+            context,
             _ => ValueTask.FromResult<object?>(null));
 
         // Assert
         var conflict = Assert.IsType<ConflictObjectResult>(result);
         Assert.Equal(
-            IdempotencyFilter.ConflictErrorMessage, 
+            IdempotencyFilter.ConflictErrorMessage,
             conflict.Value);
     }
 
@@ -245,15 +185,12 @@ public class IdempotencyFilterTests
     public async Task OnActionExecutionAsync_ValidRequest_ProceedsAndCaches()
     {
         // Arrange
-        var (context,
-            cache,
-            db,
-            options) = GetSetup(hc =>
-            {
-                hc.SetEndpoint(CreateEndpoint());
-                hc.Request.Headers[Contracts.Constants.IdempotencyKeyHeaderName] = IdempotencyKey;
-                hc.User = CreateUser();
-            });
+        var (context, cache, db, filter) = GetSetup(hc =>
+        {
+            hc.SetEndpoint(CreateEndpoint());
+            hc.Request.Headers[Contracts.Constants.IdempotencyKeyHeaderName] = IdempotencyKey;
+            hc.User = CreateUser();
+        });
 
         db.Setup(d => d.LockTakeAsync(
             LockKey,
@@ -261,13 +198,6 @@ public class IdempotencyFilterTests
             It.IsAny<TimeSpan>(),
             CommandFlags.None))
           .ReturnsAsync(true);
-
-        var filter = new IdempotencyFilter(
-            cache.Object,
-            db.Object,
-            options,
-            null,
-            null);
 
         var actionContext = new ActionContext(
             context.HttpContext,
@@ -312,9 +242,10 @@ public class IdempotencyFilterTests
     }
 
     private static (
-        DefaultEndpointFilterInvocationContext Context, 
-        Mock<IDistributedCache> Cache, Mock<IDatabase> Db, 
-        IOptions<IdempotencyOptions> Options) GetSetup(
+        DefaultEndpointFilterInvocationContext Context,
+        Mock<IDistributedCache> Cache,
+        Mock<IDatabase> Db,
+        IdempotencyFilter Filter) GetSetup(
         Action<HttpContext>? setupAction = null)
     {
         var httpContext = new DefaultHttpContext();
@@ -334,17 +265,26 @@ public class IdempotencyFilterTests
 
         // Explicitly return null for GetAsync to avoid "empty string" deserialization errors
         cache.Setup(c => c.GetAsync(
-            It.IsAny<string>(), 
+            It.IsAny<string>(),
             It.IsAny<CancellationToken>()))
             .ReturnsAsync((byte[]?)null);
 
         var db = new Mock<IDatabase>();
         var options = Microsoft.Extensions.Options.Options.Create(new IdempotencyOptions());
+        var fileOptions = Microsoft.Extensions.Options.Options.Create(new FileStorageOptions());
 
-        return (new DefaultEndpointFilterInvocationContext(httpContext), 
-            cache, 
-            db, 
-            options);
+        var filter = new IdempotencyFilter(
+            cache.Object,
+            db.Object,
+            options,
+            fileOptions,
+            TimeProvider.System);
+
+        return (
+            new DefaultEndpointFilterInvocationContext(httpContext),
+            cache,
+            db,
+            filter);
     }
 
     private static ClaimsPrincipal CreateUser() =>
