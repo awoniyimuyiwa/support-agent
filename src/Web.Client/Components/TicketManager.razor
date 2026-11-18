@@ -26,7 +26,7 @@
     <!-- Search, Filter & Sort Control Panel -->
     <div class="card border-0 shadow-sm p-3 mb-4 bg-light">
         <div class="row g-3 align-items-end">
-            <div class="col-md-3">
+            <div class="col-12 col-lg-6 col-xxl">
                 <label class="form-label small fw-bold text-secondary text-uppercase">Search</label>
                 <div class="input-group">
                     <span class="input-group-text bg-white border-end-0"><span class="bi bi-search"></span></span>
@@ -35,7 +35,7 @@
                 </div>
             </div>
 
-            <div class="col-md-2">
+            <div class="col-6 col-lg-3 col-xxl-2">
                 <label class="form-label small fw-bold text-secondary text-uppercase">Priority</label>
                 <select class="form-select" @bind="_filter.Priority" @bind:after="ResetPage">
                     <option value="">Priorities</option>
@@ -46,7 +46,7 @@
                 </select>
             </div>
 
-            <div class="col-md-2">
+            <div class="col-6 col-lg-3 col-xxl-2">
                 <label class="form-label small fw-bold text-secondary text-uppercase">Status</label>
                 <select class="form-select" @bind="_filter.Status" @bind:after="ResetPage">
                     <option value="">Statuses</option>
@@ -57,8 +57,8 @@
                 </select>
             </div>
 
-            <div class="col-md-2">
-                <label class="form-label small fw-bold text-secondary text-uppercase">Sync Status</label>
+            <div class="col-6 col-lg-4 col-xxl-2">
+                <label class="form-label small fw-bold text-secondary text-uppercase text-nowrap">Sync Status</label>
                 <select class="form-select" @bind="_filter.SyncStatus" @bind:after="ResetPage">
                     <option value="">Sync States</option>
                     @foreach (var syncStatus in VisibleSyncStatuses)
@@ -69,7 +69,7 @@
             </div>
 
             <!-- Sort Column -->
-            <div class="col-md-2">
+            <div class="col-6 col-lg-4 col-xxl-2">
                 <label class="form-label small fw-bold text-secondary text-uppercase">Sort By</label>
                 <select class="form-select" @bind="_filter.SortColumn" @bind:after="ApplyFilter">
                     <option value="@nameof(Ticket.CreatedAt)">Created At</option>
@@ -80,8 +80,9 @@
             </div>
 
             <!-- Sort Order -->
-            <div class="col-md-2">
-                <button class="btn btn-outline-secondary w-100 fw-semibold d-flex align-items-center justify-content-center"
+            <div class="col-12 col-lg-4 col-xxl-auto">
+                <button type="button"
+                        class="btn btn-outline-secondary w-100 fw-semibold d-flex align-items-center justify-content-center gap-2 text-nowrap"
                         @onclick="ToggleSortDirection">
                     <span class="bi @(_filter.SortDescending ? "bi-sort-down-alt" : "bi-sort-up")"></span>
                     <span>@(_filter.SortDescending ? "Descending" : "Ascending")</span>
@@ -94,18 +95,18 @@
     <div class="card border-0 shadow-sm overflow-hidden mb-3">
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
-                <thead class="table-light text-secondary small text-uppercase">
+                <thead class="table-light text-secondary small text-uppercase text-nowrap">
                     <tr>
-                        <th class="ps-4" style="width: 120px;">ID</th>
-                        <th>Title</th>
-                        <th>Description</th>
-                        <th>Priority</th>
-                        <th>Status</th>
+                        <th class="ps-4" style="width: 110px;">ID</th>
+                        <th style="min-width: 180px;">Title</th>
+                        <th style="min-width: 220px;">Description</th>
+                        <th style="width: 120px;">Priority</th>
+                        <th style="width: 120px;">Status</th>
                         @if (_isAdmin)
                         {
-                            <th>Sync State</th>
+                            <th style="width: 130px;">Sync State</th>
                         }
-                        <th class="pe-4 text-end" style="width: 140px;">Actions</th>
+                        <th class="pe-4 text-end" style="width: 120px;">Actions</th>
                     </tr>
                 </thead>
                 <tbody class="small">
@@ -114,7 +115,8 @@
                         <tr>
                             <td colspan="@(_isAdmin ? 7 : 6)" class="text-center p-5 text-muted">
                                 <span class="bi bi-folder-x fs-1 d-block mb-2 text-secondary opacity-50"></span>
-                                No tickets found.
+                                <span class="fw-semibold d-block">No tickets found.</span>
+                                <span class="small">Try adjusting your search or filter, or create a new ticket.</span>
                             </td>
                         </tr>
                     }
@@ -123,28 +125,32 @@
                         @foreach (var ticket in _tickets)
                         {
                             @* Highlight rows containing outstanding background server sync errors *@
-                            <tr class="animate-fade-in @(!string.IsNullOrWhiteSpace(ticket.SerializedErrors) ? "table-danger-light border-start border-danger border-3" : "")">
-                                <td class="ps-4 fw-mono text-secondary">#@ticket.Id.ToString()[..8]</td>
+                            <tr class="animate-fade-in @(!string.IsNullOrWhiteSpace(ticket.SerializedErrors) ? "table-danger border-start border-danger border-3" : "")">
+                                <td class="ps-4 font-monospace text-secondary text-nowrap">#@ticket.Id.ToString()[..8]</td>
                                 <td class="fw-semibold text-dark">
-                                    @ticket.Title
-                                    @if (!string.IsNullOrWhiteSpace(ticket.SerializedErrors))
-                                    {
-                                        <span class="badge bg-danger ms-1 text-white animate-pulse" title="Sync Rejected">Error</span>
-                                    }
+                                    <div class="d-flex align-items-center gap-2">
+                                        <span class="text-truncate" style="max-width: 220px;" title="@ticket.Title">@ticket.Title</span>
+                                        @if (!string.IsNullOrWhiteSpace(ticket.SerializedErrors))
+                                        {
+                                            <span class="badge bg-danger text-white flex-shrink-0" title="Sync Rejected">Error</span>
+                                        }
+                                    </div>
                                 </td>
-                                <td class="text-truncate text-muted" style="max-width: 250px;">@ticket.Description</td>
-                                <td><TicketPriorityBadge Priority="ticket.Priority" /></td>
-                                <td><TicketStatusBadge Status="ticket.Status" /></td>
+                                <td class="text-truncate text-muted" style="max-width: 260px;" title="@ticket.Description">@ticket.Description</td>
+                                <td class="text-nowrap"><TicketPriorityBadge Priority="ticket.Priority" /></td>
+                                <td class="text-nowrap"><TicketStatusBadge Status="ticket.Status" /></td>
                                 @if (_isAdmin)
                                 {
-                                    <td>
+                                    <td class="text-nowrap">
                                         @if (!string.IsNullOrWhiteSpace(ticket.SerializedErrors))
                                         {
                                             <span class="badge bg-danger text-white border-0">Sync Error</span>
                                         }
                                         else if (ticket.SyncStatus == SyncStatus.PendingInsert || ticket.SyncStatus == SyncStatus.PendingUpdate)
                                         {
-                                            <span class="badge bg-info text-dark border"><span class="spinner-border spinner-border-sm me-1" style="width:0.7rem; height:0.7rem;"></span> Queued</span>
+                                            <span class="badge bg-info text-dark border">
+                                                <span class="spinner-border spinner-border-sm me-1" style="width: 0.7rem; height: 0.7rem;"></span> Queued
+                                            </span>
                                         }
                                         else
                                         {
@@ -152,20 +158,22 @@
                                         }
                                     </td>
                                 }
-                                <td class="pe-4 text-end">
+                                <td class="pe-4 text-end text-nowrap">
                                     <!-- Mutation Guard Rule Locks: Admins skip constraints; standard users can mutate only if Open -->
                                     @if (_isAdmin || ticket.Status == TicketStatus.Open)
                                     {
-                                        <button class="btn btn-outline-secondary btn-sm border-0" @onclick="() => OpenEditModal(ticket)" title="Edit">
-                                            <span class="bi @(!string.IsNullOrWhiteSpace(ticket.SerializedErrors) ? "bi-exclamation-circle-fill text-danger" : "bi-pencil-square")"></span>
-                                        </button>
-                                        <button class="btn btn-outline-danger btn-sm border-0" @onclick="() => PromptDelete(ticket)" title="Delete">
-                                            <span class="bi bi-trash3"></span>
-                                        </button>
+                                        <div class="d-inline-flex align-items-center gap-1">
+                                            <button type="button" class="btn btn-outline-secondary btn-sm border-0" @onclick="() => OpenEditModal(ticket)" title="Edit">
+                                                <span class="bi @(!string.IsNullOrWhiteSpace(ticket.SerializedErrors) ? "bi-exclamation-circle-fill text-danger" : "bi-pencil-square")"></span>
+                                            </button>
+                                            <button type="button" class="btn btn-outline-danger btn-sm border-0" @onclick="() => PromptDelete(ticket)" title="Delete">
+                                                <span class="bi bi-trash3"></span>
+                                            </button>
+                                        </div>
                                     }
                                     else
                                     {
-                                        <span class="text-muted small px-2 italic"><span class="bi bi-lock-fill"></span> Locked</span>
+                                        <span class="text-muted small px-2 fst-italic"><span class="bi bi-lock-fill me-1"></span>Locked</span>
                                     }
                                 </td>
                             </tr>
@@ -176,17 +184,19 @@
                                 var errorMap = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string[]>>(ticket.SerializedErrors);
                                 if (errorMap is not null && errorMap.Count > 0)
                                 {
-                                    <tr class="table-danger-light">
-                                        <td colspan="@(_isAdmin ? 7 : 6)" class="ps-5 pe-4 py-2 font-sans-serif text-danger bg-opacity-10 border-bottom">
-                                            <div class="card card-body bg-white border-danger shadow-xs py-2 mb-1">
-                                                <div class="fw-bold text-uppercase small text-secondary mb-1"><span class="bi bi-bug-fill me-1"></span> Server Rejection Reasons</div>
+                                    <tr class="table-danger">
+                                        <td colspan="@(_isAdmin ? 7 : 6)" class="ps-5 pe-4 py-2 text-danger border-bottom text-wrap">
+                                            <div class="card card-body bg-white border-danger shadow-sm py-2 mb-1">
+                                                <div class="fw-bold text-uppercase small text-secondary mb-1">
+                                                    <span class="bi bi-bug-fill me-1"></span> Server Rejection Reasons
+                                                </div>
                                                 <ul class="list-unstyled mb-0 small">
                                                     @foreach (var error in errorMap)
                                                     {
                                                         @foreach (var msg in error.Value)
                                                         {
                                                             <li class="d-flex align-items-start gap-1 text-danger">
-                                                                <span class="bi bi-dot mt-0.5"></span>
+                                                                <span class="bi bi-dot"></span>
                                                                 <span><strong>@error.Key:</strong> @msg</span>
                                                             </li>
                                                         }
@@ -399,7 +409,7 @@
         _userId = user.Id!.Value;
 
         if (OperatingSystem.IsBrowser())
-        {  
+        {
             await ApplyFilter();
             SyncState.OnSyncCompleted += HandleSyncCompleted;
         }

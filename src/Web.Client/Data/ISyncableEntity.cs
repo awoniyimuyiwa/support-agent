@@ -4,11 +4,11 @@ public interface ISyncableEntity
 {
     Guid Id { get; set; }
 
-    public DateTime CreatedAt { get; set; }
+    DateTime CreatedAt { get; set; }
 
-    public DateTime UpdatedAt { get; set; }
+    DateTime UpdatedAt { get; set; }
 
-    public bool IsDeleted { get; set; }
+    bool IsDeleted { get; set; }
 
     /// <summary>
     /// Server-controlled optimistic concurrency token updated exclusively when applying deltas or sync responses from the backend.
@@ -27,6 +27,6 @@ public interface ISyncableEntity
     /// <summary>
     /// JSON array of errors
     /// </summary>
-    public string? SerializedErrors { get; set; }
+    string? SerializedErrors { get; set; }
 }
 
